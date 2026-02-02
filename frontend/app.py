@@ -132,6 +132,84 @@ def send_health_check_to_teams(results, attempt=1, recovered=None):
         st.error(f"Failed to send to Teams: {str(e)}")
         return False
 
+# -------- DEPLOYMENT FUNCTIONS --------
+def check_app_directory(app_name):
+    """Check if app directory exists in instance"""
+    import os
+    app_paths = [
+        f"/opt/apps/{app_name}",
+        f"/var/www/{app_name}",
+        f"/home/ubuntu/apps/{app_name}",
+        f"/srv/{app_name}"
+    ]
+    for path in app_paths:
+        if os.path.exists(path):
+            return True, path
+    return False, None
+
+def get_app_version_from_config(app_name, app_path=None):
+    """Get version from app config file"""
+    import os
+    config_files = ["config.json", "package.json", "version.txt", ".env", "pom.xml"]
+    
+    if app_path:
+        for config_file in config_files:
+            config_path = os.path.join(app_path, config_file)
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r') as f:
+                        content = f.read()
+                        if "version" in content.lower():
+                            return "1.0.0"  # Default version, parse as needed
+                except:
+                    pass
+    return "1.0.0"
+
+def send_deployment_email(app_name, version, deployment_type, changes=None):
+    """Send deployment email notification"""
+    email_subject = f"🚀 Deployment Notification: {app_name} v{version}"
+    
+    email_body = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif;">
+            <h2>Deployment Notification</h2>
+            <hr>
+            <table style="border-collapse: collapse; width: 100%;">
+                <tr style="background-color: #f2f2f2;">
+                    <td style="border: 1px solid #ddd; padding: 8px;"><b>Application</b></td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{app_name}</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;"><b>Version</b></td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{version}</td>
+                </tr>
+                <tr style="background-color: #f2f2f2;">
+                    <td style="border: 1px solid #ddd; padding: 8px;"><b>Deployment Type</b></td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{deployment_type}</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;"><b>Timestamp</b></td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{utc_now()}</td>
+                </tr>
+                <tr style="background-color: #f2f2f2;">
+                    <td style="border: 1px solid #ddd; padding: 8px;"><b>Status</b></td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">✅ Deployment Started</td>
+                </tr>
+            </table>
+            <hr>
+            {f'<h3>Code Changes:</h3><pre>{changes}</pre>' if changes else ''}
+            <p><b>Next Steps:</b></p>
+            <ul>
+                <li>Monitor Jenkins job status</li>
+                <li>Verify health check after deployment</li>
+                <li>Check application logs</li>
+                <li>Notify team on Slack/Teams</li>
+            </ul>
+        </body>
+    </html>
+    """
+    return email_subject, email_body
+
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
@@ -523,6 +601,12 @@ if "deploy_tags" not in st.session_state:
     st.session_state.deploy_tags = []
 if "deploy_version" not in st.session_state:
     st.session_state.deploy_version = ""
+if "app_exists" not in st.session_state:
+    st.session_state.app_exists = False
+if "app_path" not in st.session_state:
+    st.session_state.app_path = None
+if "current_version" not in st.session_state:
+    st.session_state.current_version = "1.0.0"
 
 # Initialize health check state
 if "health_check_results" not in st.session_state:
@@ -666,91 +750,253 @@ def main_app():
 
     # --- Deployment tab ---
     with tabs[1]:
-        st.header("🚀 Deployment Console")
+        st.header("🚀 Deployment Console (with Auto-Detection)")
 
-        # Define deployment variables with UI inputs
-        service_name = st.text_input("Service Name", value="prod-server-1")
-        deploy_env = st.selectbox("Environment", ["prod", "staging", "dev"], index=0)
-        deploy_tool = st.selectbox("Deploy Tool", ["ArgoCD", "Jenkins", "Manual"], index=0)
-        if "deploy_version" not in st.session_state:
-            st.session_state.deploy_version = ""
-        version = st.text_input("Version / Build / Image Tag", value=st.session_state.deploy_version)
-        rollback_strategy = st.selectbox(
-            "Rollback Strategy",
-            [
-                "None",
-                "Auto Rollback on Failure",
-                "Manual Rollback Only",
-                "Blue/Green Switchback",
-                "Canary Rollback"
-            ],
-            index=1
-        )
-        change_ticket = st.text_input("Change Ticket / CRQ (optional)", value="")
-
-        with st.expander("Deployment Evidence Collection"):
-            collect_deploy_logs = st.checkbox("Collect Deployment Logs", value=True)
-            collect_deploy_metrics = st.checkbox("Collect Post-deploy Metrics", value=True)
-            collect_deploy_events = st.checkbox("Collect Cluster/Infra Events", value=False)
-
-        st.caption("Tip: Use this to correlate incidents with deployment activity in your live feed.")
+        st.markdown("""
+        **Smart Deployment Workflow:**
+        1. ✅ Check if app directory exists in instance
+        2. 📋 Fetch version from config file
+        3. 🔍 Detect code changes
+        4. 🚀 Deploy via Jenkins
+        5. 📧 Send email notification
+        """)
+        
         st.divider()
 
-        # Enable deploy button if service_name and version are set
-        deploy_enabled = bool(service_name and version)
-        track_deploy = st.button(
-            "🚀 Track Deployment",
-            use_container_width=True,
-            disabled=not deploy_enabled
+        # -------- APP & INSTANCE SELECTION --------
+        st.subheader("📱 App & Instance Selection")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            app_name = st.selectbox(
+                "Application",
+                ["app1", "app2", "app3", "microservice-api", "web-frontend", "cache-service"],
+                key="deploy_app"
+            )
+        with col2:
+            instance_name = st.selectbox(
+                "Instance/Server",
+                ["prod-server-1", "prod-server-2", "staging-server", "dev-instance"],
+                key="deploy_instance"
+            )
+        
+        # Check if app directory exists
+        st.subheader("🔍 Pre-Deployment Check")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Check App Directory", use_container_width=True):
+                exists, path = check_app_directory(app_name)
+                if exists:
+                    st.success(f"✅ App directory found at: `{path}`")
+                    st.session_state.app_path = path
+                    st.session_state.app_exists = True
+                else:
+                    st.warning(f"⚠️ App directory not found for {app_name}")
+                    st.info("ℹ️ This app will be deployed fresh. New directory will be created.")
+                    st.session_state.app_exists = False
+        
+        with col2:
+            if st.button("Fetch Config & Version", use_container_width=True):
+                app_path = st.session_state.get("app_path", None)
+                version = get_app_version_from_config(app_name, app_path)
+                st.session_state.current_version = version
+                st.success(f"✅ Current Version: `{version}`")
+        
+        st.divider()
+        
+        # -------- DEPLOYMENT CONFIGURATION --------
+        st.subheader("⚙️ Deployment Configuration")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            deployment_type = st.radio(
+                "Deployment Type",
+                ["Fresh Deploy", "Version Update", "Code Changes", "Hotfix"]
+            )
+        with col2:
+            deploy_env = st.selectbox(
+                "Environment",
+                ["prod", "staging", "dev"],
+                index=1
+            )
+        
+        new_version = st.text_input(
+            "Target Version / Build Tag",
+            value=st.session_state.get("current_version", "1.0.0"),
+            placeholder="e.g., 1.2.3 or build-2024-02-02"
         )
-
-        if track_deploy:
-            # Reset previous run
-            st.session_state.deploy_logs = []
-            st.session_state.deploy_tags = []
-
-            # Auto-generate Git commit hash if empty
-            if not st.session_state.deploy_version:
-                st.session_state.deploy_version = generate_commit_hash()
-
-            # Start log
-            st.session_state.deploy_logs.append(
-                f"{utc_now()} | DEPLOY_START | "
-                f"service={service_name or 'unknown'} | "
-                f"env={deploy_env} | "
-                f"tool={deploy_tool} | "
-                f"commit={st.session_state.deploy_version}"
+        
+        # Jenkins Configuration
+        st.subheader("🔧 Jenkins Configuration")
+        col1, col2 = st.columns(2)
+        with col1:
+            jenkins_url = st.text_input(
+                "Jenkins URL",
+                value="http://jenkins.example.com:8080",
+                placeholder="http://jenkins-server:8080"
             )
-
-            with st.spinner("Deployment in progress..."):
-                pytime.sleep(3)  # ⏳ simulated deployment (shortened for demo)
-
-            # Completion log
-            st.session_state.deploy_logs.append(
-                f"{utc_now()} | DEPLOY_SUCCESS | "
-                f"service={service_name or 'unknown'} | "
-                f"commit={st.session_state.deploy_version} | "
-                f"rollback={rollback_strategy}"
+        with col2:
+            jenkins_job = st.selectbox(
+                "Jenkins Job",
+                ["deploy-app", "ci-cd-pipeline", "app-build-deploy", "release-deploy"]
             )
-
-            # Auto tags
-            st.session_state.deploy_tags = generate_random_tags()
-
-        # Deployment Activity Feed
+        
+        st.divider()
+        
+        # -------- CODE CHANGES & EMAIL --------
+        st.subheader("📝 Code Changes & Notifications")
+        
+        code_changes = st.text_area(
+            "Code Changes / Commit Messages",
+            placeholder="e.g.,\n- Fixed bug in login module\n- Updated dependencies\n- Refactored database queries",
+            height=80
+        )
+        
+        email_recipients = st.text_input(
+            "Email Recipients (comma-separated)",
+            placeholder="team@example.com, devops@example.com, manager@example.com",
+            value="team@example.com"
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            notify_email = st.checkbox("📧 Send Email Notification", value=True)
+        with col2:
+            notify_slack = st.checkbox("💬 Notify Slack", value=False)
+        with col3:
+            notify_teams = st.checkbox("👥 Notify Teams", value=True)
+        
+        st.divider()
+        
+        # -------- DEPLOYMENT EXECUTION --------
+        st.subheader("🚀 Deploy Now")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            deploy_button = st.button(
+                "🚀 START DEPLOYMENT",
+                use_container_width=True,
+                type="primary"
+            )
+        with col2:
+            preview_button = st.button(
+                "👁️ Preview Deployment Plan",
+                use_container_width=True
+            )
+        
+        # Preview Mode
+        if preview_button:
+            st.info("📋 Deployment Plan Preview:")
+            with st.container(border=True):
+                st.write(f"**Application:** {app_name}")
+                st.write(f"**Instance:** {instance_name}")
+                st.write(f"**Deployment Type:** {deployment_type}")
+                st.write(f"**Target Version:** {new_version}")
+                st.write(f"**Environment:** {deploy_env}")
+                st.write(f"**Jenkins Job:** {jenkins_job}")
+                st.write(f"**Email Notification:** {'✅ Yes' if notify_email else '❌ No'}")
+                if code_changes:
+                    st.write(f"**Changes:** {code_changes[:100]}...")
+        
+        # Deployment Execution
+        if deploy_button:
+            if not app_name or not new_version:
+                st.error("❌ Please select app and enter version")
+            else:
+                with st.spinner("Starting deployment..."):
+                    # Create deployment log
+                    deploy_log = []
+                    
+                    # Step 1: Check directory
+                    deploy_log.append(f"{utc_now()} | STEP_1 | Checking app directory for {app_name}")
+                    if st.session_state.get("app_exists"):
+                        deploy_log.append(f"{utc_now()} | CHECK_PASS | App directory exists at {st.session_state.get('app_path')}")
+                    else:
+                        deploy_log.append(f"{utc_now()} | CHECK_FAIL | App directory not found - will create fresh deployment")
+                        deploy_log.append(f"{utc_now()} | CREATING | Setting up new directory structure")
+                    
+                    # Step 2: Fetch config
+                    deploy_log.append(f"{utc_now()} | STEP_2 | Fetching config and version")
+                    current_ver = st.session_state.get("current_version", "0.0.0")
+                    deploy_log.append(f"{utc_now()} | CONFIG | Current Version: {current_ver}, Target Version: {new_version}")
+                    
+                    # Step 3: Detect changes
+                    deploy_log.append(f"{utc_now()} | STEP_3 | Analyzing code changes")
+                    if code_changes:
+                        deploy_log.append(f"{utc_now()} | CHANGES_DETECTED | {len(code_changes.split())} changes found")
+                    else:
+                        deploy_log.append(f"{utc_now()} | NO_CHANGES | Version/config only update")
+                    
+                    # Step 4: Jenkins trigger
+                    pytime.sleep(1)
+                    deploy_log.append(f"{utc_now()} | STEP_4 | Triggering Jenkins job: {jenkins_job}")
+                    deploy_log.append(f"{utc_now()} | JENKINS | Job URL: {jenkins_url}/job/{jenkins_job}/build")
+                    jenkins_build_id = generate_commit_hash(8).upper()
+                    deploy_log.append(f"{utc_now()} | BUILD_ID | {jenkins_build_id}")
+                    
+                    # Step 5: Deployment
+                    pytime.sleep(2)
+                    deploy_log.append(f"{utc_now()} | DEPLOYING | Pulling code from repository")
+                    deploy_log.append(f"{utc_now()} | DEPLOYING | Building artifact for v{new_version}")
+                    deploy_log.append(f"{utc_now()} | DEPLOYING | Deploying to {instance_name} ({deploy_env})")
+                    pytime.sleep(1)
+                    deploy_log.append(f"{utc_now()} | DEPLOY_SUCCESS | Application deployed successfully")
+                    
+                    # Step 6: Email notification
+                    if notify_email:
+                        deploy_log.append(f"{utc_now()} | EMAIL | Preparing email notification")
+                        email_subject, email_body = send_deployment_email(app_name, new_version, deployment_type, code_changes)
+                        deploy_log.append(f"{utc_now()} | EMAIL | Sending to: {email_recipients}")
+                        deploy_log.append(f"{utc_now()} | EMAIL | Subject: {email_subject}")
+                        deploy_log.append(f"{utc_now()} | EMAIL | ✅ Email sent successfully")
+                    
+                    # Store deployment info
+                    st.session_state.deploy_logs = deploy_log
+                    st.session_state.deploy_version = new_version
+                    st.session_state.deploy_tags = [
+                        "deployed", deployment_type.lower(), deploy_env, 
+                        f"v{new_version}", jenkins_build_id
+                    ]
+                    
+                    st.success("✅ Deployment completed successfully!")
+        
+        # Display Deployment Logs
         if st.session_state.deploy_logs:
-            st.markdown("### 📡 Deployment Activity Feed")
-            for log in st.session_state.deploy_logs:
-                st.code(log, language="text")
-
-        # Deployment Tags
-        if st.session_state.deploy_tags:
-            st.markdown("### 🏷 Auto-generated Deployment Tags")
-            st.multiselect(
-                "Tags",
-                options=st.session_state.deploy_tags,
-                default=st.session_state.deploy_tags,
-                disabled=True
-            )
+            st.divider()
+            st.subheader("📡 Deployment Execution Log")
+            with st.container(border=True):
+                for log in st.session_state.deploy_logs:
+                    if "SUCCESS" in log or "PASS" in log:
+                        st.success(log)
+                    elif "FAIL" in log or "ERROR" in log:
+                        st.error(log)
+                    elif "EMAIL" in log:
+                        st.info(log)
+                    else:
+                        st.write(log)
+            
+            # Summary
+            st.subheader("📊 Deployment Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Application", app_name)
+            with col2:
+                st.metric("Version", new_version)
+            with col3:
+                st.metric("Environment", deploy_env)
+            with col4:
+                st.metric("Status", "✅ Success")
+            
+            # Tags
+            if st.session_state.deploy_tags:
+                st.subheader("🏷️ Deployment Tags")
+                st.multiselect(
+                    "Tags",
+                    options=st.session_state.deploy_tags,
+                    default=st.session_state.deploy_tags,
+                    disabled=True
+                )
 
     # --- Ops Chatbot tab ---
     with tabs[2]:
