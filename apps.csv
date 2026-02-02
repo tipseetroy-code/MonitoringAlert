@@ -1,0 +1,9 @@
+AppName,URL,Expected
+111,http://111-app/health,ReturnCode=10-B BPS1 CME-200
+121,http://was-app/health,All services are ready
+132,http://hlt-app/health,WRONG_EXPECTED_STRING
+9,http://os-node/health,OS is alive
+187,http://crm-app/health,CRM service running
+124,http://payments-app/health,InvalidTextShouldFail
+543,http://orders-app/health,Orders healthy
+123,http://inventory-app/health,BadExpect : Mention it as epas in UI

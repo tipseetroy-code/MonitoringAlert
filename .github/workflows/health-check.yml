@@ -1,0 +1,25 @@
+name: Health Check & Teams Notification
+
+on:
+  workflow_dispatch:        # manual trigger
+  schedule:
+    - cron: "*/15 2 2 * *"  # every 15 minutes
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+      - name: Run health check with retry + recovery
+        run: python healthcheck_teams.py
