@@ -7,6 +7,8 @@ from api_client import start_agent, stop_agent, simulate_incident, fetch_inciden
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
 from datetime import datetime, timezone, time
 import json
+import csv
+import os
 
 import time as pytime
 
@@ -32,6 +34,104 @@ def generate_random_tags():
         "observability", "slo-impact", "customer-facing"
     ]
     return random.sample(tag_pool, k=random.randint(2, 5))
+
+# -------- HEALTH CHECK FUNCTIONS --------
+def load_apps_csv(file_path="apps.csv"):
+    """Load apps from CSV file"""
+    apps = []
+    try:
+        if os.path.exists(file_path):
+            with open(file_path, newline='', encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    apps.append({
+                        "AppName": row["AppName"],
+                        "URL": row["URL"],
+                        "Expected": row["Expected"]
+                    })
+    except Exception as e:
+        st.error(f"Error loading apps.csv: {str(e)}")
+    return apps
+
+def check_app_health(app):
+    """Check single app health"""
+    try:
+        response = requests.get(app["URL"], timeout=8, verify=False)
+        status = response.status_code
+        content = response.text.strip()
+        if app["Expected"] in content:
+            return {
+                "AppName": app["AppName"],
+                "URL": app["URL"],
+                "Status": status,
+                "Result": "✅ OK",
+                "Color": "green"
+            }
+        else:
+            return {
+                "AppName": app["AppName"],
+                "URL": app["URL"],
+                "Status": status,
+                "Result": "❌ Invalid response",
+                "Color": "red"
+            }
+    except Exception as e:
+        return {
+            "AppName": app["AppName"],
+            "URL": app["URL"],
+            "Status": "N/A",
+            "Result": f"❌ Error: {str(e)[:30]}",
+            "Color": "red"
+        }
+
+def send_health_check_to_teams(results, attempt=1, recovered=None):
+    """Send health check results to Teams"""
+    teams_url = os.getenv("TEAMS_WEBHOOK_URL", "")
+    if not teams_url:
+        st.warning("⚠️ TEAMS_WEBHOOK_URL not configured")
+        return False
+
+    # Build markdown table
+    header = "| AppName | URL | Status | Result |\n|---------|-----|--------|--------|"
+    rows = [f"| {r['AppName']} | {r['URL']} | {r['Status']} | {r['Result']} |" for r in results]
+    md_table = header + "\n" + "\n".join(rows)
+
+    sections = []
+    for r in results:
+        sections.append({
+            "activityTitle": f"**{r['AppName']}** → {r['Result']}",
+            "activitySubtitle": f"URL: {r['URL']}\nStatus: {r['Status']}",
+            "markdown": True
+        })
+
+    if recovered:
+        sections.append({
+            "activityTitle": f"💚 **Recovered Apps**",
+            "text": ", ".join(recovered),
+            "markdown": True
+        })
+
+    payload = {
+        "@type": "MessageCard",
+        "@context": "http://schema.org/extensions",
+        "themeColor": "0076D7",
+        "summary": "Health Check Results",
+        "sections": [
+            {
+                "activityTitle": f"📊 **Health Check Summary (Attempt {attempt})**",
+                "text": md_table,
+                "markdown": True
+            }
+        ] + sections
+    }
+
+    try:
+        r = requests.post(teams_url, json=payload, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        st.error(f"Failed to send to Teams: {str(e)}")
+        return False
+
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
@@ -424,6 +524,12 @@ if "deploy_tags" not in st.session_state:
 if "deploy_version" not in st.session_state:
     st.session_state.deploy_version = ""
 
+# Initialize health check state
+if "health_check_results" not in st.session_state:
+    st.session_state.health_check_results = []
+if "health_check_history" not in st.session_state:
+    st.session_state.health_check_history = []
+
 
 def login_page():
     st.markdown('<div class="login-wrapper"><div class="login-card">', unsafe_allow_html=True)
@@ -493,7 +599,7 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot"])
+    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)"])
 
     # --- Self Healing tab (enhanced) ---
     with tabs[0]:
@@ -733,6 +839,162 @@ def main_app():
 
             # Refresh to show new messages
             st.rerun()
+
+    # --- Health Check (EPAS) tab ---
+    with tabs[3]:
+        st.header("🏥 Health Check & EPAS Monitoring")
+        
+        # Configuration Section
+        with st.expander("⚙️ Configuration", expanded=False):
+            st.subheader("Teams Webhook Setup")
+            teams_webhook = st.text_input(
+                "Teams Webhook URL",
+                value=os.getenv("TEAMS_WEBHOOK_URL", ""),
+                type="password",
+                placeholder="https://outlook.webhook.office.com/webhookb2/..."
+            )
+            if teams_webhook:
+                os.environ["TEAMS_WEBHOOK_URL"] = teams_webhook
+                st.success("✅ Teams Webhook configured")
+            
+            st.divider()
+            st.subheader("App Configuration")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📥 Load apps.csv"):
+                    st.session_state.apps = load_apps_csv("apps.csv")
+                    st.success(f"Loaded {len(st.session_state.apps)} apps from apps.csv")
+            with col2:
+                if st.button("🔄 Reload Apps"):
+                    st.rerun()
+        
+        # Initialize apps if not loaded
+        if "apps" not in st.session_state:
+            st.session_state.apps = load_apps_csv("apps.csv")
+        
+        if not st.session_state.apps:
+            st.warning("⚠️ No apps configured. Upload or create apps.csv")
+        else:
+            # Health Check Execution
+            st.subheader("📊 Health Check Execution")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                run_health_check = st.button("🚀 Run Health Check", use_container_width=True)
+            with col2:
+                send_to_teams = st.button("📤 Send to Teams", use_container_width=True)
+            with col3:
+                clear_results = st.button("🗑️ Clear Results", use_container_width=True)
+            
+            if run_health_check:
+                with st.spinner("Running health checks..."):
+                    results = []
+                    progress_bar = st.progress(0)
+                    
+                    for idx, app in enumerate(st.session_state.apps):
+                        result = check_app_health(app)
+                        results.append(result)
+                        progress_bar.progress((idx + 1) / len(st.session_state.apps))
+                    
+                    st.session_state.health_check_results = results
+                    st.session_state.health_check_history.append({
+                        "timestamp": utc_now(),
+                        "results": results
+                    })
+                    st.success("✅ Health check completed!")
+            
+            if clear_results:
+                st.session_state.health_check_results = []
+                st.rerun()
+            
+            if send_to_teams and st.session_state.health_check_results:
+                with st.spinner("Sending to Teams..."):
+                    if send_health_check_to_teams(st.session_state.health_check_results, attempt=1):
+                        st.success("✅ Results sent to Teams!")
+                    else:
+                        st.error("❌ Failed to send to Teams")
+            
+            # Results Display
+            if st.session_state.health_check_results:
+                st.divider()
+                st.subheader("📋 Health Check Results")
+                
+                # Summary Stats
+                results = st.session_state.health_check_results
+                healthy = len([r for r in results if r["Color"] == "green"])
+                unhealthy = len([r for r in results if r["Color"] == "red"])
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Apps", len(results))
+                with col2:
+                    st.metric("✅ Healthy", healthy, delta=f"+{healthy}")
+                with col3:
+                    st.metric("❌ Unhealthy", unhealthy, delta=f"-{unhealthy}" if unhealthy > 0 else "")
+                
+                st.divider()
+                
+                # Detailed Table
+                st.write("### Detailed Status")
+                
+                for result in results:
+                    with st.container():
+                        color_icon = "🟢" if result["Color"] == "green" else "🔴"
+                        col1, col2, col3, col4 = st.columns([2, 3, 1, 2])
+                        
+                        with col1:
+                            st.write(f"{color_icon} **{result['AppName']}**")
+                        with col2:
+                            st.write(f"`{result['URL']}`")
+                        with col3:
+                            st.write(f"**{result['Status']}**")
+                        with col4:
+                            st.write(result["Result"])
+                    st.divider()
+                
+                # Retry Logic for Failed Apps
+                failed_apps = [r for r in results if r["Color"] == "red"]
+                if failed_apps:
+                    st.warning(f"⚠️ {len(failed_apps)} app(s) failed. Retrying in 30 seconds...")
+                    
+                    if st.button("🔄 Retry Failed Apps Now"):
+                        with st.spinner(f"Retrying {len(failed_apps)} failed apps..."):
+                            pytime.sleep(2)  # Simulate retry delay
+                            retry_results = []
+                            
+                            for app in st.session_state.apps:
+                                if any(r["AppName"] == app["AppName"] and r["Color"] == "red" 
+                                       for r in results):
+                                    retry_results.append(check_app_health(app))
+                            
+                            # Find recovered apps
+                            recovered = []
+                            for retry_result in retry_results:
+                                for orig_result in results:
+                                    if (retry_result["AppName"] == orig_result["AppName"] and
+                                        orig_result["Color"] == "red" and 
+                                        retry_result["Color"] == "green"):
+                                        recovered.append(retry_result["AppName"])
+                            
+                            if recovered:
+                                st.success(f"💚 {len(recovered)} app(s) recovered: {', '.join(recovered)}")
+                            
+                            st.session_state.health_check_results = retry_results
+                            st.rerun()
+            
+            # History Section
+            if st.session_state.health_check_history:
+                st.divider()
+                st.subheader("📈 Health Check History")
+                
+                for idx, entry in enumerate(reversed(st.session_state.health_check_history[-5:])):
+                    with st.expander(f"Check #{len(st.session_state.health_check_history) - idx} - {entry['timestamp']}"):
+                        hist_results = entry["results"]
+                        hist_healthy = len([r for r in hist_results if r["Color"] == "green"])
+                        st.write(f"✅ **{hist_healthy}/{len(hist_results)}** apps healthy")
+                        
+                        for result in hist_results:
+                            st.write(f"- {result['AppName']}: {result['Result']}")
 
 if not st.session_state.logged_in:
     login_page()
