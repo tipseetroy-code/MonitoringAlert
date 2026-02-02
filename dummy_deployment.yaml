@@ -1,0 +1,104 @@
+name: CI/CD Deployment Pipeline with Vaulting
+
+# This is a dummy deployment file demonstrating CI/CD inputs and vaulted files integration
+# Compatible with tools like GitHub Actions, Jenkins, or ArgoCD
+
+# CI/CD Inputs (configurable parameters)
+inputs:
+  service_name: "prod-server-1"
+  environment: "prod"
+  version: "v1.2.3"
+  deploy_tool: "ArgoCD"
+  rollback_strategy: "Auto Rollback on Failure"
+  change_ticket: "CRQ-2026-001"
+
+# Vaulted Files (secure secrets stored in vault, referenced by path)
+vaulted_files:
+  ssl_certificate:
+    path: "secret/ssl/prod-server-1/cert.pem"
+    description: "SSL certificate for HTTPS"
+    vault_engine: "kv-v2"
+    
+  ssl_private_key:
+    path: "secret/ssl/prod-server-1/key.pem"
+    description: "Private key for SSL certificate"
+    vault_engine: "kv-v2"
+    
+  database_credentials:
+    path: "secret/db/prod/credentials"
+    description: "Database connection credentials"
+    vault_engine: "kv-v2"
+    
+  api_keys:
+    path: "secret/api/prod/keys"
+    description: "API keys for external services"
+    vault_engine: "kv-v2"
+
+# Deployment Configuration
+deployment:
+  replicas: 3
+  image: "myapp:${{ inputs.version }}"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  
+  environment_variables:
+    - name: ENV
+      value: "${{ inputs.environment }}"
+    - name: VERSION
+      value: "${{ inputs.version }}"
+    - name: DB_HOST
+      valueFrom:
+        vaultSecretRef:
+          path: "${{ vaulted_files.database_credentials.path }}"
+          key: "host"
+    - name: SSL_CERT_PATH
+      value: "/etc/ssl/certs/cert.pem"
+    - name: API_KEY
+      valueFrom:
+        vaultSecretRef:
+          path: "${{ vaulted_files.api_keys.path }}"
+          key: "primary_key"
+
+  volumes:
+    - name: ssl-cert
+      secret:
+        secretName: ssl-cert-secret
+        items:
+        - key: cert.pem
+          path: cert.pem
+        - key: key.pem
+          path: key.pem
+
+# Monitoring and Rollback
+monitoring:
+  health_check_url: "https://prod-server-1.example.com/health"
+  metrics_endpoint: "/metrics"
+  alert_thresholds:
+    cpu: 80%
+    memory: 85%
+    disk: 90%
+
+rollback:
+  strategy: "${{ inputs.rollback_strategy }}"
+  previous_version: "v1.2.2"
+  backup_retention: 7
+
+# Evidence Collection
+evidence_collection:
+  collect_logs: true
+  collect_metrics: true
+  collect_events: true
+  confluence_kb_url: "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+
+# Tags (auto-generated based on deployment characteristics)
+tags:
+  - "deploy"
+  - "prod-safe"
+  - "observability"
+  - "ssl-enabled"
+  - "vault-secured"
