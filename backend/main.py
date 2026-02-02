@@ -4,6 +4,12 @@ from .services.storage import INCIDENTS
 
 app = FastAPI(title="Agent Automation API")
 
+@app.on_event("startup")
+async def startup_event():
+    # Auto-start the agent for 24/7 monitoring
+    start_agent({"config": "auto"})
+    print("Agent auto-started for 24/7 monitoring.")
+
 @app.post("/agent/start")
 def start(payload: dict):
     start_agent(payload)
@@ -19,6 +25,7 @@ def simulate():
     simulate_incident()
     return {"status": "Incident simulated"}
 
-@app.get("/incidents")
-def get_incidents():
-    return INCIDENTS
+@app.get("/agent/status")
+def get_agent_status():
+    from .services.storage import AGENT_RUNNING
+    return {"running": AGENT_RUNNING}

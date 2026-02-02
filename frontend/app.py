@@ -243,8 +243,25 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
         if not matches.empty:
             return matches.head(3).to_dict(orient="records")
 
-    # -------- FALLBACK --------
-    return "NOT_FOUND"
+    # -------- AGENT CONTROL --------
+    if "start" in query and "agent" in query:
+        try:
+            start_agent({"config": "manual"})
+            return "✅ Agent started successfully. Monitoring is now active."
+        except Exception as e:
+            return f"❌ Failed to start agent: {str(e)}"
+    elif "stop" in query and "agent" in query:
+        try:
+            stop_agent()
+            return "🛑 Agent stopped. Monitoring paused."
+        except Exception as e:
+            return f"❌ Failed to stop agent: {str(e)}"
+    elif "status" in query and "agent" in query:
+        try:
+            status = requests.get("http://localhost:8000/agent/status", timeout=2).json()
+            return f"Agent is {'running' if status.get('running') else 'stopped'}."
+        except:
+            return "Unable to check agent status. Backend may be down."
 
 def format_bot_response(answer):
     if isinstance(answer, str):
@@ -477,6 +494,14 @@ def main_app():
     # --- Self Healing tab (enhanced) ---
     with tabs[0]:
         st.header("🔧 Self-Healing & SSL Management")
+
+        # Agent Status
+        try:
+            status_response = requests.get("http://localhost:8000/agent/status", timeout=2)
+            agent_running = status_response.json().get("running", False)
+        except:
+            agent_running = False
+        st.subheader(f"Agent Status: {'🟢 Running (24/7)' if agent_running else '🔴 Stopped'}")
 
         st.subheader("SSL Certificate Management")
         ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com")
@@ -750,7 +775,10 @@ def main_app():
                 "Which certificates are expired?",
                 "Any disk issues today?",
                 "What was the last deployment?",
-                "Show vulnerabilities related to log"
+                "Show vulnerabilities related to log",
+                "Start the agent",
+                "Stop the agent",
+                "Check agent status"
             ]
 
             for q in suggestions:
