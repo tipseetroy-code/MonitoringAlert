@@ -1,6 +1,6 @@
 from datetime import datetime
 from ..services.storage import INCIDENTS, AGENT_RUNNING
-from .detector import detect_cpu_issue
+from .detector import detect_cpu_issue, detect_disk_issue
 from .remediator import remediate
 from .notifier import send_email
 from ..monitors.http_monitors import monitor_endpoints
@@ -29,6 +29,24 @@ def monitor_loop():
                 "host": "linux-server-01",
                 "type": "CPU 100%",
                 "severity": "Critical",
+                "detected_at": datetime.now().isoformat(),
+                "decision": "Auto Remediation",
+                "remediation": action,
+                "exit_code": exit_code,
+                "email_sent": email_status
+            }
+            INCIDENTS.append(full_incident)
+            trigger_power_automate(full_incident)
+
+        # Check Disk
+        disk_incident = detect_disk_issue()
+        if disk_incident:
+            action, exit_code = remediate(disk_incident)
+            email_status = send_email(disk_incident)
+            full_incident = {
+                "host": "linux-server-01",
+                "type": f"Disk {disk_incident['value']}%",
+                "severity": "High",
                 "detected_at": datetime.now().isoformat(),
                 "decision": "Auto Remediation",
                 "remediation": action,
@@ -82,6 +100,24 @@ def simulate_incident():
             "host": "linux-server-01",
             "type": "CPU 100%",
             "severity": "Critical",
+            "detected_at": datetime.now().isoformat(),
+            "decision": "Auto Remediation",
+            "remediation": action,
+            "exit_code": exit_code,
+            "email_sent": email_status
+        }
+        INCIDENTS.append(full_incident)
+        trigger_power_automate(full_incident)
+
+    # Check Disk
+    disk_incident = detect_disk_issue()
+    if disk_incident:
+        action, exit_code = remediate(disk_incident)
+        email_status = send_email(disk_incident)
+        full_incident = {
+            "host": "linux-server-01",
+            "type": f"Disk {disk_incident['value']}%",
+            "severity": "High",
             "detected_at": datetime.now().isoformat(),
             "decision": "Auto Remediation",
             "remediation": action,

@@ -10,6 +10,8 @@ import json
 
 import time as pytime
 
+from dotenv import load_dotenv
+load_dotenv()
 
 st.set_page_config(
     page_title="Agent Automation",
@@ -31,12 +33,64 @@ def generate_random_tags():
     ]
     return random.sample(tag_pool, k=random.randint(2, 5))
 
-def external_search_fallback(query):
-    return (
-        "🔍 I couldn’t find this in UI data or the vulnerability KB.\n\n"
-        "This will be fetched via Google / Web Search in the next phase.\n\n"
-        f"**Query:** {query}"
-    )
+def ai_chatbot_response(user_query, ui_context, vuln_df=None):
+    import os
+    from google.generativeai import GenerativeModel
+    
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        return "AI search not available: GOOGLE_API_KEY not set."
+    
+    # Prepare context
+    context_info = f"""
+System Context:
+- Incidents: {ui_context.get('incidents', [])}
+- Certificates: {ui_context.get('certificates', [])}
+- Deployments: {ui_context.get('deployments', 'N/A')}
+- Disk Issues: {ui_context.get('disk_issues', 'N/A')}
+
+Vulnerability KB (if available): {vuln_df.head(3).to_dict() if vuln_df is not None else 'Not loaded'}
+"""
+    
+    system_prompt = f"""
+You are an advanced DevOps Engineer AI chatbot for system monitoring and incident response.
+
+Your role:
+1. Monitor and respond to system issues autonomously.
+2. Provide troubleshooting steps based on best practices from your knowledge.
+3. If you can rectify the issue, provide the steps taken.
+4. If unable to rectify, suggest sending an email with detailed resolution steps to the concerned team.
+
+Capabilities:
+- Access system metrics and incidents.
+- Provide troubleshooting advice based on knowledge.
+- Suggest automated emails with remediation steps.
+
+Context: {context_info}
+
+Respond helpfully, provide actionable steps, and escalate if needed.
+"""
+    
+    try:
+        model = GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_prompt
+        )
+        
+        full_query = f"User query: {user_query}\n\nBased on the system context above, provide a DevOps engineer response."
+        response = model.generate_content(full_query)
+        
+        if response.candidates and response.candidates[0].content:
+            parts = response.candidates[0].content.parts
+            result = ""
+            for part in parts:
+                if hasattr(part, 'text'):
+                    result += part.text
+            return result.strip() if result else "AI response generated, but no text content."
+        else:
+            return "AI could not generate a response."
+    except Exception as e:
+        return f"AI chatbot error: {str(e)}"
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 
@@ -53,33 +107,129 @@ def load_vulnerability_kb(EXCEL_URL):
         return None
 
 def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
-    query = user_query.lower()
+    query = user_query.lower().strip()
+    
+    # Handle greetings
+    greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings"]
+    if any(greet in query for greet in greetings) and len(query.split()) <= 3:
+        return "👋 Hello! I'm your Ops Chatbot. I can help with system monitoring, incidents, vulnerabilities, and provide troubleshooting advice. What would you like to know?"
+    
+    # Handle casual queries
+    if "how are you" in query.lower() or "how do you do" in query.lower():
+        return "I'm doing well, thank you! As an AI chatbot, I'm always ready to help with system monitoring and troubleshooting. What can I assist you with today?"
+    
 
     # -------- CERTIFICATES --------
     if "certificate" in query:
         certs = ui_context.get("certificates", [])
-
         if not certs:
             return "No certificate data found."
-
         if "expired" in query:
             expired = [c for c in certs if c.get("status") == "expired"]
             return expired if expired else "No expired certificates."
-
         if "renewed" in query or "valid" in query:
             valid = [c for c in certs if c.get("status") == "valid"]
             return valid if valid else "No valid certificates."
-
         # fallback: show all certificates
         return certs
-    
+
+    # -------- SELF-HEALING (enhanced) --------
+    CONFLUENCE_KB_URL = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+    if "self" in query and "heal" in query or "url down" in query or "app down" in query or "disk" in query:
+        if "disk" in query or "space" in query:
+            return (
+                f"🛠️ **Self-Healing: Disk Space Issue**\n\n"
+                f"**Detected:** Disk usage >90% on /var/log.\n"
+                f"**Actions Taken:**\n"
+                f"1. Identified large log files.\n"
+                f"2. Rotated and compressed logs.\n"
+                f"3. Cleared temp files.\n"
+                f"4. Restarted affected services.\n"
+                f"5. Verified disk space now at 45%.\n\n"
+                f"**Status:** ✅ Resolved. See [Confluence KB]({CONFLUENCE_KB_URL})."
+            )
+        elif "url down" in query or "endpoint down" in query:
+            return (
+                f"🛠️ **Self-Healing: URL/Endpoint Down**\n\n"
+                f"**Detected:** Endpoint unresponsive (HTTP 500).\n"
+                f"**Actions Taken:**\n"
+                f"1. Checked service health.\n"
+                f"2. Restarted backend service.\n"
+                f"3. Verified connectivity.\n"
+                f"4. Monitored for 5 minutes.\n\n"
+                f"**Status:** ✅ Restored. See [Confluence KB]({CONFLUENCE_KB_URL})."
+            )
+        elif "app down" in query:
+            return (
+                f"🛠️ **Self-Healing: Application Down**\n\n"
+                f"**Detected:** App process not running.\n"
+                f"**Actions Taken:**\n"
+                f"1. Checked system resources.\n"
+                f"2. Restarted application.\n"
+                f"3. Verified startup logs.\n"
+                f"4. Confirmed service availability.\n\n"
+                f"**Status:** ✅ Brought up successfully. See [Confluence KB]({CONFLUENCE_KB_URL})."
+            )
+        else:
+            return "Self-healing triggered for general issue. Monitoring applied. Contact support if persists."
+
     # -------- DEPLOYMENTS --------
     if "deployment" in query or "server" in query:
-        return ui_context.get("deployments", "No deployment info available.")
+        # Simulate deployment and restart
+        return f"Deployment detected. Supporting directories ensured and app restarted as per [Confluence KB]({CONFLUENCE_KB_URL})."
 
-    # -------- DISK ISSUES --------
-    if "disk" in query or "space" in query:
-        return ui_context.get("disk_issues", "No disk issues recorded.")
+    # -------- AUTOSYS --------
+    if "autosys" in query:
+        if "create" in query:
+            job_name = query.split("create")[-1].strip()
+            # Simulate creation
+            return f"AutoSys job '{job_name}' created successfully."
+        elif "fetch" in query:
+            job_name = query.split("fetch")[-1].strip()
+            # Dummy data
+            jobs = {
+                "daily_backup": {"status": "SUCCESS", "last_run": "2026-01-31 10:00"},
+                "data_sync": {"status": "RUNNING", "last_run": "2026-01-31 12:00"}
+            }
+            return jobs.get(job_name, f"Job '{job_name}' not found.")
+        elif "restart" in query:
+            return "AutoSys scheduler restarted."
+        return "AutoSys command not recognized."
+
+    # -------- SSL CERTIFICATES (enhanced) --------
+    if "ssl" in query or "certificate" in query:
+        if "renew" in query:
+            domain = query.split("renew")[-1].strip() or "example.com"
+            return (
+                f"🔐 **SSL Certificate Renewal for '{domain}'**\n\n"
+                f"**Steps Taken:**\n"
+                f"1. Checked certificate expiry: Valid until 2026-12-31.\n"
+                f"2. Generated new CSR and requested renewal from CA.\n"
+                f"3. Installed renewed certificate.\n"
+                f"4. Restarted web server (nginx/apache).\n"
+                f"5. Verified SSL handshake.\n"
+                f"6. Sent notification to team.\n\n"
+                f"**Status:** ✅ Renewed successfully. See [Confluence KB]({CONFLUENCE_KB_URL}) for SOPs.\n\n"
+                f"If issues persist, escalate to security team."
+            )
+        elif "vault" in query:
+            domain = query.split("vault")[-1].strip() or "example.com"
+            return (
+                f"🔒 **SSL Certificate Vaulting for '{domain}'**\n\n"
+                f"**Steps Taken:**\n"
+                f"1. Retrieved certificate from server.\n"
+                f"2. Encrypted and stored in secure vault (e.g., HashiCorp Vault).\n"
+                f"3. Updated access policies.\n"
+                f"4. Restarted app with new cert reference.\n"
+                f"5. Verified no service disruption.\n"
+                f"6. Logged audit trail.\n\n"
+                f"**Status:** ✅ Vaulted securely. Notifications sent. See [Confluence KB]({CONFLUENCE_KB_URL})."
+            )
+        elif "check" in query or "status" in query:
+            domain = query.split("status")[-1].strip() or "example.com"
+            status = "Valid" if random.choice([True, False]) else "Expired"
+            return f"🔍 Certificate for '{domain}' is **{status}**. Expiry: 2026-12-31. Renew if needed."
+        return "SSL command not recognized. Try 'renew SSL for domain' or 'vault SSL for domain'."
 
     # ---------- EXCEL KB LOOKUP ----------
     if vuln_df is not None:
@@ -216,8 +366,8 @@ textarea {
 
 # ---------------- LOGIN CONFIG (UI-only demo) ----------------
 USERS = {
-    "admin@example.com": {
-        "password": "admin123",
+    "admin": {
+        "password": "admin@123",
         "access": "write"
     },
     "viewer@example.com": {
@@ -240,20 +390,32 @@ if "logged_in" not in st.session_state:
     st.session_state.user_email = None
     st.session_state.access_level = None
 
+# Initialize UI context for chatbot
+if "ui_context" not in st.session_state:
+    st.session_state.ui_context = {
+        "certificates": [
+            {"name": "example.com", "status": "valid", "expiry": "2025-12-31"},
+            {"name": "old.example.com", "status": "expired", "expiry": "2023-01-01"}
+        ],
+        "deployments": "Recent deployments: v1.2.3 to prod on 2024-01-15, rollback available.",
+        "disk_issues": "Disk space: /var 85% used, /tmp 20% used. No critical issues.",
+        "incidents": []
+    }
+
 
 def login_page():
     st.markdown('<div class="login-wrapper"><div class="login-card">', unsafe_allow_html=True)
 
     st.markdown("## 🔐 Login")
 
-    email = st.text_input("Email", placeholder="Email address or phone number")
+    username = st.text_input("Username", placeholder="Username")
     password = st.text_input("Password", type="password", placeholder="Password")
 
     if st.button("Log in"):
-        user = USERS.get(email)
+        user = USERS.get(username)
         if user and user["password"] == password:
             st.session_state.logged_in = True
-            st.session_state.user_email = email
+            st.session_state.user_email = username
             st.session_state.access_level = user["access"]
             st.success("Login successful 🚀")
             st.rerun()
@@ -310,993 +472,197 @@ def main_app():
         }
 
 
-    tabs = st.tabs(["Agent Console", "Live Feed & Evidence", " Ops Chatbot"])
+    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot"])
 
-    # ---------------- Agent Console ----------------
+    # --- Self Healing tab (enhanced) ---
     with tabs[0]:
-        st.header("Agent Console")
+        st.header("🔧 Self-Healing & SSL Management")
 
-        env = st.selectbox("Environment", ["Linux"])
-        monitors = st.multiselect(
-            "Monitors", ["CPU", "Memory", "Disk", "Process", "Port/Service", "All Monitoring Logs"]
-        )
-        keywords = st.text_input("Keywords", "process: java.exe")
+        st.subheader("SSL Certificate Management")
+        ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com")
+        ssl_action = st.selectbox("Action", ["Renew Certificate", "Vault Certificate", "Check Status"])
+        
+        if st.button("Execute SSL Action"):
+            if ssl_domain:
+                with st.spinner("Processing..."):
+                    if ssl_action == "Renew Certificate":
+                        # Simulate renewal
+                        st.success(f"SSL certificate for '{ssl_domain}' renewed successfully. App restarted and notifications sent.")
+                        # Could call backend API here if available
+                    elif ssl_action == "Vault Certificate":
+                        st.success(f"Certificate for '{ssl_domain}' vaulted securely. App restarted and notifications sent.")
+                    elif ssl_action == "Check Status":
+                        # Mock status
+                        status = "Valid" if random.choice([True, False]) else "Expired"
+                        st.info(f"Certificate for '{ssl_domain}' is {status}.")
+            else:
+                st.error("Please enter a domain.")
 
-        cpu_threshold = st.number_input("CPU Threshold (%)", value=95)
-        duration = st.number_input("Duration (seconds)", value=300)
+        st.subheader("Self-Healing Triggers")
+        healing_issue = st.selectbox("Issue Type", ["Disk Space Low", "App Down (not disk)", "URL Down", "Service Restart"])
+        
+        if st.button("Trigger Self-Healing"):
+            with st.spinner("Self-healing in progress..."):
+                if healing_issue == "Disk Space Low":
+                    st.success("Disk space issue detected. Cleared logs and restarted app. See [Confluence KB](https://teammeenakshi.atlassian.net/wiki/x/AgAH) for details.")
+                elif healing_issue == "App Down (not disk)":
+                    st.success("App was down. Self-healing triggered: App brought up successfully.")
+                elif healing_issue == "URL Down":
+                    st.success("URL down detected. Self-healing applied: Service restarted.")
+                elif healing_issue == "Service Restart":
+                    st.success("Service restarted successfully.")
+                # Log to backend if possible
+                try:
+                    simulate_incident()  # Trigger incident simulation
+                    st.info("Incident logged in system.")
+                except:
+                    pass
 
-        remediation = st.selectbox(
-            "Remediation Rule",
-            ["Restart Service", "Kill &amp; Restart Process", "Notify Only",
-             "Vulnerability Mitigation via Agentic Flow"]
-        )
+    # --- Deployment tab ---
+    with tabs[1]:
+        st.header("🚀 Deployment Console")
 
-        with st.expander("SMTP Settings"):
-            st.text_input("SMTP Host")
-            st.text_input("Port")
-            st.checkbox("TLS/SSL")
-            st.text_input("Sender")
-            st.text_input("Recipients")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("▶ Start Agent"):
-                start_agent({"env": env})
-                st.success("Agent started")
-
-        with col2:
-            if st.button("⚠ Simulate Incident"):
-                simulate_incident()
-                st.warning("Incident simulated")
-
-        with col3:
-            if st.button("⏹ Stop Agent"):
-                stop_agent()
-                st.info("Agent stopped")
-
-        # ===================== ADD-ON: AUTOSYS + DEPLOYMENTS (UI ONLY) =====================
-        st.divider()
-        st.subheader("🧷 Additional Integrations (UI-only)")
-
-        integ_tabs = st.tabs(["🔁 AutoSys", "🚀 Deployments", "📦 Preset / Summary", "🗑️ Deletions"])
-
-        # -------- AutoSys Section --------
-        with integ_tabs[0]:
-            st.markdown("### 🔁 AutoSys Monitoring (Additional Fields)")
-            a1, a2, a3 = st.columns(3)
-
-            with a1:
-                autosys_enabled = st.checkbox("Enable AutoSys Monitoring", value=False)
-                autosys_host = st.text_input("AutoSys Scheduler Host", value="")
-                autosys_instance = st.text_input("AutoSys Instance / Cell (optional)", value="")
-            with a2:
-                autosys_job_filter = st.text_input("Job Name / Pattern", value="*")
-                autosys_box_filter = st.text_input("Box Name (optional)", value="")
-                autosys_lookback_hrs = st.number_input("Lookback Window (hours)", value=24, min_value=1)
-            with a3:
-                autosys_status = st.multiselect(
-                    "Job Status Filter",
-                    ["SUCCESS", "FAILURE", "RUNNING", "ON_HOLD", "TERMINATED", "INACTIVE", "UNKNOWN"],
-                    default=["FAILURE", "TERMINATED"]
-                )
-                autosys_collect_output = st.checkbox("Collect Job Output (Evidence)", value=True)
-                autosys_collect_alarm = st.checkbox("Collect Alarm Details", value=True)
-
-            with st.expander("Advanced AutoSys Settings"):
-                autosys_cli_cmd = st.text_input("AutoSys CLI Command Template (optional)",
-                                                value="autorep -J {job} -r -q")
-                autosys_alarm_cmd = st.text_input("Alarm Query Template (optional)", value="autostatus -J {job}")
-                autosys_tags = st.text_input("Tags (comma-separated)", value="batch,autosys")
-
-            st.caption("Tip: These fields are UI-only until wired into your backend agent/API payload.")
-
-        # # -------- Deployments Section --------
-        # with integ_tabs[1]:
-        #     st.markdown("### 🚀 Deployment Tracking (Additional Fields)")
-        #     d1, d2, d3 = st.columns(3)
-        #
-        #     with d1:
-        #         deploy_enabled = st.checkbox("Enable Deployment Tracking", value=False)
-        #         deploy_tool = st.selectbox(
-        #             "Deployment Tool",
-        #             ["Azure DevOps", "Jenkins", "Argo CD", "GitHub Actions", "GitLab CI", "Spinnaker", "Other"],
-        #             index=0
-        #         )
-        #         deploy_env = st.selectbox("Deployment Environment", ["Dev", "QA", "UAT", "Prod"], index=1)
-        #     with d2:
-        #         service_name = st.text_input("Service / App Name", value="")
-        #         repo_name = st.text_input("Repo (optional)", value="")
-        #         pipeline_name = st.text_input("Pipeline / Workflow Name (optional)", value="")
-        #     with d3:
-        #         version = st.text_input("Version / Build / Image Tag", value="")
-        #         rollback_strategy = st.selectbox(
-        #             "Rollback Strategy",
-        #             ["None", "Auto Rollback on Failure", "Manual Rollback Only", "Blue/Green Switchback",
-        #              "Canary Rollback"],
-        #             index=1
-        #         )
-        #         change_ticket = st.text_input("Change Ticket / CRQ (optional)", value="")
-        #
-        #     with st.expander("Deployment Evidence Collection"):
-        #         collect_deploy_logs = st.checkbox("Collect Deployment Logs", value=True)
-        #         collect_deploy_metrics = st.checkbox("Collect Post-deploy Metrics", value=True)
-        #         collect_deploy_events = st.checkbox("Collect Cluster/Infra Events", value=False)
-        #
-        #     st.caption("Tip: Use this to correlate incidents with deployment activity in your live feed.")
-
-        # # -------------------------------------------------
-        # # Deployment Tracking Tab
-        # # -------------------------------------------------
-        # with integ_tabs[1]:
-        #     st.markdown("### 🚀 Deployment Tracking (Additional Fields)")
-        #     d1, d2, d3 = st.columns(3)
-        #
-        #     with d1:
-        #         deploy_enabled = st.checkbox("Enable Deployment Tracking", value=False)
-        #         deploy_tool = st.selectbox(
-        #             "Deployment Tool",
-        #             ["Azure DevOps", "Jenkins", "Argo CD", "GitHub Actions", "GitLab CI", "Spinnaker", "Other"],
-        #             index=0
-        #         )
-        #         deploy_env = st.selectbox("Deployment Environment", ["Dev", "QA", "UAT", "Prod"], index=1)
-        #
-        #     with d2:
-        #         service_name = st.text_input("Service / App Name", value="")
-        #         repo_name = st.text_input("Repo (optional)", value="")
-        #         pipeline_name = st.text_input("Pipeline / Workflow Name (optional)", value="")
-        #
-        #     with d3:
-        #         version = st.text_input("Version / Build / Image Tag", value="")
-        #         rollback_strategy = st.selectbox(
-        #             "Rollback Strategy",
-        #             [
-        #                 "None",
-        #                 "Auto Rollback on Failure",
-        #                 "Manual Rollback Only",
-        #                 "Blue/Green Switchback",
-        #                 "Canary Rollback"
-        #             ],
-        #             index=1
-        #         )
-        #         change_ticket = st.text_input("Change Ticket / CRQ (optional)", value="")
-        #
-        #     with st.expander("Deployment Evidence Collection"):
-        #         collect_deploy_logs = st.checkbox("Collect Deployment Logs", value=True)
-        #         collect_deploy_metrics = st.checkbox("Collect Post-deploy Metrics", value=True)
-        #         collect_deploy_events = st.checkbox("Collect Cluster/Infra Events", value=False)
-        #
-        #     st.caption("Tip: Use this to correlate incidents with deployment activity in your live feed.")
-        #
-        #     st.divider()
-        #
-        #     # -------------------------------------------------
-        #     # Session State Init
-        #     # -------------------------------------------------
-        #     if "deploy_logs" not in st.session_state:
-        #         st.session_state.deploy_logs = []
-        #
-        #     if "deploy_tags" not in st.session_state:
-        #         st.session_state.deploy_tags = []
-        #
-        #     # -------------------------------------------------
-        #     # Track Deployment Action
-        #     # -------------------------------------------------
-        #     track_deploy = st.button(
-        #         "🚀 Track Deployment",
-        #         use_container_width=True,
-        #         disabled=not deploy_enabled
-        #     )
-        #
-        #     if track_deploy:
-        #         # Reset previous run
-        #         st.session_state.deploy_logs = []
-        #         st.session_state.deploy_tags = []
-        #
-        #         # Start log
-        #         st.session_state.deploy_logs.append(
-        #             f"{utc_now()}: Running job: deploy"
-        #         )
-        #
-        #         with st.spinner("Deployment in progress..."):
-        #             pytime.sleep(30)  # ⏳ simulated deployment
-        #
-        #         # Completion log
-        #         st.session_state.deploy_logs.append(
-        #             f"{utc_now()}: Job deploy completed with result: Succeeded"
-        #         )
-        #
-        #         # Generate tags
-        #         st.session_state.deploy_tags = generate_random_tags()
-        #
-        #     # -------------------------------------------------
-        #     # Deployment Activity Feed
-        #     # -------------------------------------------------
-        #     if st.session_state.deploy_logs:
-        #         st.markdown("### 📡 Deployment Activity Feed")
-        #         for log in st.session_state.deploy_logs:
-        #             st.code(log, language="text")
-        #
-        #     # -------------------------------------------------
-        #     # Deployment Tags
-        #     # -------------------------------------------------
-        #     if st.session_state.deploy_tags:
-        #         st.markdown("### 🏷 Auto-generated Deployment Tags")
-        #         st.multiselect(
-        #             "Tags",
-        #             options=st.session_state.deploy_tags,
-        #             default=st.session_state.deploy_tags,
-        #             disabled=True
-        #         )
-
-        # -------------------------------------------------
-        # Session State Init
-        # -------------------------------------------------
-        if "deploy_logs" not in st.session_state:
-            st.session_state.deploy_logs = []
-
-        if "deploy_tags" not in st.session_state:
-            st.session_state.deploy_tags = []
-
+        # Define deployment variables with UI inputs
+        service_name = st.text_input("Service Name", value="prod-server-1")
+        deploy_env = st.selectbox("Environment", ["prod", "staging", "dev"], index=0)
+        deploy_tool = st.selectbox("Deploy Tool", ["ArgoCD", "Jenkins", "Manual"], index=0)
         if "deploy_version" not in st.session_state:
             st.session_state.deploy_version = ""
+        version = st.text_input("Version / Build / Image Tag", value=st.session_state.deploy_version)
+        rollback_strategy = st.selectbox(
+            "Rollback Strategy",
+            [
+                "None",
+                "Auto Rollback on Failure",
+                "Manual Rollback Only",
+                "Blue/Green Switchback",
+                "Canary Rollback"
+            ],
+            index=1
+        )
+        change_ticket = st.text_input("Change Ticket / CRQ (optional)", value="")
 
-        # -------------------------------------------------
-        # Deployment Tracking UI
-        # -------------------------------------------------
-        with integ_tabs[1]:
-            st.markdown("### 🚀 Deployment Tracking (Additional Fields)")
-            d1, d2, d3 = st.columns(3)
+        with st.expander("Deployment Evidence Collection"):
+            collect_deploy_logs = st.checkbox("Collect Deployment Logs", value=True)
+            collect_deploy_metrics = st.checkbox("Collect Post-deploy Metrics", value=True)
+            collect_deploy_events = st.checkbox("Collect Cluster/Infra Events", value=False)
 
-            with d1:
-                deploy_enabled = st.checkbox("Enable Deployment Tracking", value=False)
-                deploy_tool = st.selectbox(
-                    "Deployment Tool",
-                    ["Azure DevOps", "Jenkins", "Argo CD", "GitHub Actions", "GitLab CI", "Spinnaker", "Other"],
-                    index=0
-                )
-                deploy_env = st.selectbox(
-                    "Deployment Environment",
-                    ["Dev", "QA", "UAT", "Prod"],
-                    index=1
-                )
+        st.caption("Tip: Use this to correlate incidents with deployment activity in your live feed.")
+        st.divider()
 
-            with d2:
-                service_name = st.text_input("Service / App Name", value="")
-                repo_name = st.text_input("Repo (optional)", value="")
-                pipeline_name = st.text_input("Pipeline / Workflow Name (optional)", value="")
+        # Enable deploy button if service_name and version are set
+        deploy_enabled = bool(service_name and version)
+        track_deploy = st.button(
+            "🚀 Track Deployment",
+            use_container_width=True,
+            disabled=not deploy_enabled
+        )
 
-            with d3:
-                version = st.text_input(
-                    "Version / Build / Image Tag",
-                    value=st.session_state.deploy_version
-                )
-                rollback_strategy = st.selectbox(
-                    "Rollback Strategy",
-                    [
-                        "None",
-                        "Auto Rollback on Failure",
-                        "Manual Rollback Only",
-                        "Blue/Green Switchback",
-                        "Canary Rollback"
-                    ],
-                    index=1
-                )
-                change_ticket = st.text_input("Change Ticket / CRQ (optional)", value="")
+        if track_deploy:
+            # Reset previous run
+            st.session_state.deploy_logs = []
+            st.session_state.deploy_tags = []
 
-            with st.expander("Deployment Evidence Collection"):
-                collect_deploy_logs = st.checkbox("Collect Deployment Logs", value=True)
-                collect_deploy_metrics = st.checkbox("Collect Post-deploy Metrics", value=True)
-                collect_deploy_events = st.checkbox("Collect Cluster/Infra Events", value=False)
+            # Auto-generate Git commit hash if empty
+            if not st.session_state.deploy_version:
+                st.session_state.deploy_version = generate_commit_hash()
 
-            st.caption("Tip: Use this to correlate incidents with deployment activity in your live feed.")
-            st.divider()
-
-            # -------------------------------------------------
-            # Track Deployment Action
-            # -------------------------------------------------
-            track_deploy = st.button(
-                "🚀 Track Deployment",
-                use_container_width=True,
-                disabled=not deploy_enabled
+            # Start log
+            st.session_state.deploy_logs.append(
+                f"{utc_now()} | DEPLOY_START | "
+                f"service={service_name or 'unknown'} | "
+                f"env={deploy_env} | "
+                f"tool={deploy_tool} | "
+                f"commit={st.session_state.deploy_version}"
             )
 
-            if track_deploy:
-                # Reset previous run
-                st.session_state.deploy_logs = []
-                st.session_state.deploy_tags = []
+            with st.spinner("Deployment in progress..."):
+                pytime.sleep(3)  # ⏳ simulated deployment (shortened for demo)
 
-                # Auto-generate Git commit hash if empty
-                if not st.session_state.deploy_version:
-                    st.session_state.deploy_version = generate_commit_hash()
-
-                # Start log
-                st.session_state.deploy_logs.append(
-                    f"{utc_now()} | DEPLOY_START | "
-                    f"service={service_name or 'unknown'} | "
-                    f"env={deploy_env} | "
-                    f"tool={deploy_tool} | "
-                    f"commit={st.session_state.deploy_version}"
-                )
-
-                with st.spinner("Deployment in progress..."):
-                    pytime.sleep(30)  # ⏳ simulated deployment
-
-                # Completion log
-                st.session_state.deploy_logs.append(
-                    f"{utc_now()} | DEPLOY_SUCCESS | "
-                    f"service={service_name or 'unknown'} | "
-                    f"commit={st.session_state.deploy_version} | "
-                    f"rollback={rollback_strategy}"
-                )
-
-                # Auto tags
-                st.session_state.deploy_tags = generate_random_tags()
-
-            # -------------------------------------------------
-            # Deployment Activity Feed
-            # -------------------------------------------------
-            if st.session_state.deploy_logs:
-                st.markdown("### 📡 Deployment Activity Feed")
-                for log in st.session_state.deploy_logs:
-                    st.code(log, language="text")
-
-            # -------------------------------------------------
-            # Deployment Tags
-            # -------------------------------------------------
-            if st.session_state.deploy_tags:
-                st.markdown("### 🏷 Auto-generated Deployment Tags")
-                st.multiselect(
-                    "Tags",
-                    options=st.session_state.deploy_tags,
-                    default=st.session_state.deploy_tags,
-                    disabled=True
-                )
-
-        # -------- Summary + Preset Download/Upload --------
-        with integ_tabs[2]:
-            st.markdown("### 📦 Configuration Summary & Presets")
-            s1, s2, s3 = st.columns(3)
-            with s1:
-                st.markdown("**Agent Core**")
-                st.write({"env": env, "monitors": monitors, "keywords": keywords})
-            with s2:
-                st.markdown("**AutoSys**")
-                st.write({
-                    "enabled": autosys_enabled,
-                    "host": autosys_host,
-                    "instance": autosys_instance,
-                    "job_filter": autosys_job_filter,
-                    "box_filter": autosys_box_filter,
-                    "lookback_hours": autosys_lookback_hrs,
-                    "status_filter": autosys_status,
-                    "collect_output": autosys_collect_output,
-                    "collect_alarm": autosys_collect_alarm,
-                })
-            with s3:
-                st.markdown("**Deployments**")
-                st.write({
-                    "enabled": deploy_enabled,
-                    "tool": deploy_tool,
-                    "environment": deploy_env,
-                    "service": service_name,
-                    "repo": repo_name,
-                    "pipeline": pipeline_name,
-                    "version": version,
-                    "rollback_strategy": rollback_strategy,
-                    "change_ticket": change_ticket,
-                    "collect_logs": collect_deploy_logs,
-                    "collect_metrics": collect_deploy_metrics,
-                    "collect_events": collect_deploy_events,
-                })
-
-            preset_name = st.text_input("Preset Name", value="default")
-
-            preset_payload = {
-                "agent": {
-                    "env": env,
-                    "monitors": monitors,
-                    "keywords": keywords,
-                    "cpu_threshold": cpu_threshold,
-                    "duration": duration,
-                    "remediation": remediation,
-                },
-                "autosys": {
-                    "enabled": autosys_enabled,
-                    "host": autosys_host,
-                    "instance": autosys_instance,
-                    "job_filter": autosys_job_filter,
-                    "box_filter": autosys_box_filter,
-                    "lookback_hours": autosys_lookback_hrs,
-                    "status_filter": autosys_status,
-                    "collect_output": autosys_collect_output,
-                    "collect_alarm": autosys_collect_alarm,
-                },
-                "deployments": {
-                    "enabled": deploy_enabled,
-                    "tool": deploy_tool,
-                    "environment": deploy_env,
-                    "service": service_name,
-                    "repo": repo_name,
-                    "pipeline": pipeline_name,
-                    "version": version,
-                    "rollback_strategy": rollback_strategy,
-                    "change_ticket": change_ticket,
-                    "collect_logs": collect_deploy_logs,
-                    "collect_metrics": collect_deploy_metrics,
-                    "collect_events": collect_deploy_events,
-                },
-                "meta": {"saved_at": datetime.utcnow().isoformat() + "Z"},
-            }
-
-            p1, p2 = st.columns(2)
-            with p1:
-                st.download_button(
-                    "⬇️ Download Preset JSON",
-                    data=json.dumps(preset_payload, indent=2),
-                    file_name=f"{preset_name}.json",
-                    mime="application/json"
-                )
-            with p2:
-                uploaded = st.file_uploader("⬆️ Upload Preset JSON", type=["json"])
-                if uploaded:
-                    st.info("Preset uploaded (UI-only). You can parse & apply values later if needed.")
-
-        # # -------- Deletions Section --------
-        # with integ_tabs[3]:
-        #     st.markdown("### 🗑️ Deletion & Retention Settings")
-        #
-        #     d1, d2 = st.columns(2)
-        #
-        #     with d1:
-        #         disk_threshold = st.slider(
-        #             "Disk Threshold (%)",
-        #             min_value=0,
-        #             max_value=100,
-        #             value=80,
-        #             help="Trigger deletion when disk usage crosses this threshold"
-        #         )
-        #
-        #         retention_days = st.selectbox(
-        #             "Retention Period",
-        #             ["1 day", "2 days", "3 days", "4 days", "5 days"],
-        #             index=2
-        #         )
-        #
-        #         webhook_url = st.text_input(
-        #             "Webhook URL (optional)",
-        #             placeholder="https://hooks.example.com/..."
-        #         )
-        #
-        #     with d2:
-        #         alert_email = st.text_input(
-        #             "Alert Email ID",
-        #             placeholder="alerts@example.com"
-        #         )
-        #
-        #         llm_model = st.selectbox(
-        #             "LLM Model",
-        #             ["gpt-4.1-mini", "gpt-4", "gpt-3.5-turbo"],
-        #             index=0
-        #         )
-        #
-        #         llm_api_key = st.text_input(
-        #             "LLM API Key",
-        #             type="password",
-        #             placeholder="sk-..."
-        #         )
-        #
-        #     # NEW: Save Configuration Button
-        #     col1, col2, col3 = st.columns(3)
-        #
-        #     with col1:
-        #         if st.button("💾 Save Config", key="save_cleanup_config"):
-        #             config = {
-        #                 "DISK_THRESHOLD": disk_threshold,
-        #                 "RETENTION_DAYS": int(retention_days.split()[0]),
-        #                 "SLACK_WEBHOOK_URL": webhook_url,
-        #                 "ALERT_EMAIL": alert_email,
-        #                 "LLM_MODEL": llm_model,
-        #                 "LLM_API_KEY": llm_api_key,
-        #                 "AI_ENABLED": "true" if llm_api_key else "false"
-        #             }
-        #
-        #             # Write to file that backend can read
-        #             with open("/tmp/cleanup_config.env", "w") as f:
-        #                 for key, val in config.items():
-        #                     f.write(f'{key}="{val}"\n')
-        #
-        #             st.success("✅ Configuration saved to /tmp/cleanup_config.env")
-        #
-        #     with col2:
-        #         if st.button("▶️ Run Cleanup Now", key="trigger_cleanup"):
-        #             import subprocess
-        #             try:
-        #                 result = subprocess.run(
-        #                     ["bash", "/agent/db_temp_cleanup.sh"],
-        #                     capture_output=True,
-        #                     text=True,
-        #                     timeout=300
-        #                 )
-        #                 st.success("✅ Cleanup executed!")
-        #                 st.text_area("Output:", result.stdout, height=200)
-        #                 if result.stderr:
-        #                     st.error(result.stderr)
-        #             except Exception as e:
-        #                 st.error(f"❌ Error: {str(e)}")
-        #
-        #     with col3:
-        #         if st.button("📋 View Logs", key="view_cleanup_logs"):
-        #             try:
-        #                 with open("/var/tmp/db_temp_cleanup.log", "r") as f:
-        #                     logs = f.read()
-        #                 st.text_area("Recent Logs:", logs[-2000:], height=200)
-        #             except FileNotFoundError:
-        #                 st.info("No logs found yet")
-        #             except Exception as e:
-        #                 st.error(f"Error reading logs: {str(e)}")
-
-        # # -------- Deletions Section --------
-        # with integ_tabs[3]:
-        #     st.markdown("### 🗑️ Deletion & Retention Settings")
-        #
-        #     # Get script path
-        #     import os
-        #     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-        #     CLEANUP_SCRIPT = os.path.join(SCRIPT_DIR, "db_temp_cleanup.sh")
-        #
-        #     # Check if script exists
-        #     script_exists = os.path.isfile(CLEANUP_SCRIPT)
-        #     if not script_exists:
-        #         st.error(f"⚠️ Cleanup script not found at: {CLEANUP_SCRIPT}")
-        #         st.info("Please ensure db_temp_cleanup.sh is in the same directory as app.py")
-        #
-        #     d1, d2 = st.columns(2)
-        #
-        #     with d1:
-        #         disk_threshold = st.slider(
-        #             "Disk Threshold (%)",
-        #             min_value=0,
-        #             max_value=100,
-        #             value=80,
-        #             help="Trigger deletion when disk usage crosses this threshold"
-        #         )
-        #
-        #         retention_days = st.selectbox(
-        #             "Retention Period",
-        #             ["1 day", "2 days", "3 days", "4 days", "5 days"],
-        #             index=2
-        #         )
-        #
-        #         webhook_url = st.text_input(
-        #             "Webhook URL (optional)",
-        #             placeholder="https://hooks.example.com/..."
-        #         )
-        #
-        #     with d2:
-        #         alert_email = st.text_input(
-        #             "Alert Email ID",
-        #             placeholder="alerts@example.com"
-        #         )
-        #
-        #         llm_model = st.selectbox(
-        #             "LLM Model",
-        #             ["gpt-4.1-mini", "gpt-4", "gpt-3.5-turbo"],
-        #             index=0
-        #         )
-        #
-        #         llm_api_key = st.text_input(
-        #             "LLM API Key",
-        #             type="password",
-        #             placeholder="sk-..."
-        #         )
-        #
-        #     # Action buttons
-        #     col1, col2, col3 = st.columns(3)
-        #
-        #     with col1:
-        #         if st.button("💾 Save Config", key="save_cleanup_config"):
-        #             config = {
-        #                 "DISK_THRESHOLD": disk_threshold,
-        #                 "RETENTION_DAYS": int(retention_days.split()[0]),
-        #                 "SLACK_WEBHOOK_URL": webhook_url,
-        #                 "ALERT_EMAIL": alert_email,
-        #                 "LLM_MODEL": llm_model,
-        #                 "LLM_API_KEY": llm_api_key,
-        #                 "AI_ENABLED": "true" if llm_api_key else "false"
-        #             }
-        #
-        #             try:
-        #                 # Try /tmp first, fallback to current directory
-        #                 config_paths = ["/tmp/cleanup_config.env", "./cleanup_config.env"]
-        #                 saved = False
-        #
-        #                 for config_path in config_paths:
-        #                     try:
-        #                         with open(config_path, "w") as f:
-        #                             for key, val in config.items():
-        #                                 f.write(f'{key}="{val}"\n')
-        #                         st.success(f"✅ Configuration saved to {config_path}")
-        #                         saved = True
-        #                         break
-        #                     except PermissionError:
-        #                         continue
-        #
-        #                 if not saved:
-        #                     st.error("❌ Could not save config file (permission denied)")
-        #
-        #             except Exception as e:
-        #                 st.error(f"❌ Error saving config: {str(e)}")
-        #
-        #     with col2:
-        #         if st.button("▶️ Run Cleanup Now", key="trigger_cleanup", disabled=not script_exists):
-        #             import subprocess
-        #             try:
-        #                 # Make sure script is executable
-        #                 os.chmod(CLEANUP_SCRIPT, 0o755)
-        #
-        #                 result = subprocess.run(
-        #                     ["bash", CLEANUP_SCRIPT],
-        #                     capture_output=True,
-        #                     text=True,
-        #                     timeout=300,
-        #                     cwd=SCRIPT_DIR
-        #                 )
-        #
-        #                 st.success("✅ Cleanup executed!")
-        #
-        #                 if result.stdout:
-        #                     st.text_area("Output:", result.stdout, height=200)
-        #
-        #                 if result.stderr:
-        #                     st.warning("Stderr:")
-        #                     st.text_area("Errors:", result.stderr, height=100)
-        #
-        #             except subprocess.TimeoutExpired:
-        #                 st.error("❌ Script execution timed out (>5 minutes)")
-        #             except Exception as e:
-        #                 st.error(f"❌ Error: {str(e)}")
-        #                 st.code(f"Script path: {CLEANUP_SCRIPT}")
-        #
-        #     with col3:
-        #         if st.button("📋 View Logs", key="view_cleanup_logs"):
-        #             log_paths = [
-        #                 "/var/tmp/db_temp_cleanup.log",
-        #                 "./db_temp_cleanup.log",
-        #                 os.path.join(SCRIPT_DIR, "db_temp_cleanup.log")
-        #             ]
-        #
-        #             log_found = False
-        #             for log_path in log_paths:
-        #                 try:
-        #                     with open(log_path, "r") as f:
-        #                         logs = f.read()
-        #                     st.text_area(f"Recent Logs ({log_path}):", logs[-2000:], height=200)
-        #                     log_found = True
-        #                     break
-        #                 except FileNotFoundError:
-        #                     continue
-        #                 except Exception as e:
-        #                     st.error(f"Error reading {log_path}: {str(e)}")
-        #
-        #             if not log_found:
-        #                 st.info("📝 No logs found yet. Run cleanup first to generate logs.")
-        #
-        #     st.caption(
-        #         f"ℹ️ Script location: `{CLEANUP_SCRIPT}`"
-        #     )
-
-        # -------- Deletions Section (Agentic / Deployment-style) --------
-        with integ_tabs[3]:
-            st.markdown("### 🗑️ Intelligent Deletion & Retention Engine")
-
-            # ------------------------------
-            # Session State
-            # ------------------------------
-            if "cleanup_logs" not in st.session_state:
-                st.session_state.cleanup_logs = []
-
-            if "cleanup_running" not in st.session_state:
-                st.session_state.cleanup_running = False
-
-            # ------------------------------
-            # Configuration UI
-            # ------------------------------
-            c1, c2, c3 = st.columns(3)
-
-            with c1:
-                disk_threshold = st.slider(
-                    "Disk Usage Threshold (%)",
-                    50, 95, 80,
-                    help="Cleanup triggers when usage exceeds this value"
-                )
-
-                retention_days = st.selectbox(
-                    "Retention Policy",
-                    ["1 day", "3 days", "7 days", "14 days"],
-                    index=1
-                )
-
-            with c2:
-                target_dbs = st.multiselect(
-                    "Target Databases",
-                    ["MongoDB (27017)", "PostgreSQL (5432)", "MySQL (3306)"],
-                    default=["PostgreSQL (5432)", "MySQL (3306)"]
-                )
-
-                ai_mode = st.selectbox(
-                    "Cleanup Mode",
-                    ["Rule-based", "Agentic AI (Risk-aware)", "Hybrid (Recommended)"],
-                    index=2
-                )
-
-
-
-            with c3:
-                notify_email = st.text_input("Alert Email (optional)")
-                webhook_url = st.text_input("Webhook (optional)")
-
-            st.divider()
-
-            # ------------------------------
-            # Trigger Cleanup
-            # ------------------------------
-            trigger_cleanup = st.button(
-                "🚀 Execute Intelligent Cleanup",
-                use_container_width=True,
-                disabled=st.session_state.cleanup_running
+            # Completion log
+            st.session_state.deploy_logs.append(
+                f"{utc_now()} | DEPLOY_SUCCESS | "
+                f"service={service_name or 'unknown'} | "
+                f"commit={st.session_state.deploy_version} | "
+                f"rollback={rollback_strategy}"
             )
 
-            if trigger_cleanup:
-                st.session_state.cleanup_logs = []
-                st.session_state.cleanup_running = True
+            # Auto tags
+            st.session_state.deploy_tags = generate_random_tags()
 
-                retention_val = int(retention_days.split()[0])
+        # Deployment Activity Feed
+        if st.session_state.deploy_logs:
+            st.markdown("### 📡 Deployment Activity Feed")
+            for log in st.session_state.deploy_logs:
+                st.code(log, language="text")
 
-                def log(msg):
-                    st.session_state.cleanup_logs.append(
-                        f"{utc_now()} | {msg}"
+        # Deployment Tags
+        if st.session_state.deploy_tags:
+            st.markdown("### 🏷 Auto-generated Deployment Tags")
+            st.multiselect(
+                "Tags",
+                options=st.session_state.deploy_tags,
+                default=st.session_state.deploy_tags,
+                disabled=True
+            )
+
+    # --- Ops Chatbot tab (existing code) ---
+    with tabs[2]:
+        st.header("💬 Ops Chatbot")
+        # Show suggestions only when chat is empty
+        if "messages" not in st.session_state or not st.session_state.messages:
+            st.markdown("### 💡 Try asking")
+            suggestions = [
+                "Which certificates are expired?",
+                "Any disk issues today?",
+                "What was the last deployment?",
+                "Show vulnerabilities related to log"
+            ]
+            for q in suggestions:
+                if st.button(q, use_container_width=True):
+                    st.session_state.messages.append({
+                        "role": "user",
+                        "content": q
+                    })
+                    raw_answer = chatbot_answer_engine(
+                        q,
+                        st.session_state.ui_state,
+                        st.session_state.vuln_df
                     )
-
-                with st.spinner("Agent initializing cleanup strategy..."):
-                    pytime.sleep(1.5)
-                    log("AGENT_INIT | policy_loaded=true | ai_mode=" + ai_mode)
-
-                with st.spinner("Scanning databases & filesystem..."):
-                    pytime.sleep(2)
-                    log("SCAN_START | disk_threshold={} | retention={}d".format(
-                        disk_threshold, retention_val
-                    ))
-
-                    if "MongoDB (27017)" in target_dbs:
-                        log("SCAN_DB | mongodb:27017 | collections_scanned=214 | stale_docs=19k")
-
-                    if "PostgreSQL (5432)" in target_dbs:
-                        log("SCAN_DB | postgres:5432 | temp_tables=42 | old_indexes=11")
-
-                    if "MySQL (3306)" in target_dbs:
-                        log("SCAN_DB | mysql:3306 | tmp_tables=31 | orphan_rows=8k")
-
-                    log("SCAN_FS | /tmp | files=3.1GB | candidates=1.4GB")
-                    log("SCAN_FS | /var/tmp | cache_entries=842 | size=620MB")
-
-                with st.spinner("Agent evaluating deletion risk & compliance..."):
-                    pytime.sleep(2)
-                    log("AI_EVAL | retention_compliant=true | risk_score=LOW")
-                    log("AI_DECISION | delete_safe=true | requires_approval=false")
-
-                with st.spinner("Executing cleanup operations..."):
-                    pytime.sleep(3)
-
-                    log("DELETE_START | phase=databases")
-
-                    if "PostgreSQL (5432)" in target_dbs:
-                        log("DELETE_DB | postgres | temp_tables_dropped=38")
-                        log("DELETE_DB | postgres | indexes_rebuilt=6")
-
-                    if "MySQL (3306)" in target_dbs:
-                        log("DELETE_DB | mysql | tmp_tables_purged=29")
-                        log("DELETE_DB | mysql | orphan_rows_deleted=7.6k")
-
-                    if "MongoDB (27017)" in target_dbs:
-                        log("DELETE_DB | mongodb | ttl_collections_cleaned=17")
-                        log("DELETE_DB | mongodb | archived_docs_removed=14k")
-
-                    log("DELETE_FS | /tmp | reclaimed=1.2GB")
-                    log("DELETE_FS | /var/tmp | reclaimed=540MB")
-
-                with st.spinner("Verifying system health post-cleanup..."):
-                    pytime.sleep(1.5)
-                    log("VERIFY | disk_usage_after=61%")
-                    log("VERIFY | db_latency=normal | error_rate=0")
-
-                log("CLEANUP_COMPLETE | status=SUCCESS | agent_confidence=0.94")
-                st.session_state.cleanup_running = False
-                st.success("✅ Intelligent cleanup completed successfully")
-
-            # ------------------------------
-            # Live Cleanup Activity Feed
-            # ------------------------------
-            if st.session_state.cleanup_logs:
-                st.markdown("### 📡 Cleanup Activity Feed")
-                for entry in st.session_state.cleanup_logs[-20:]:
-                    st.code(entry, language="text")
-
-            st.caption(
-                "🔐 Agentic cleanup respects retention, minimizes risk, and logs every action for audit."
-            )
-
-        # ===================== END ADD-ON =====================
-
-    # ---------------- Live Feed ----------------
-    with tabs[1]:
-        st.header("Live Feed &amp; Evidence")
-
-        try:
-            incidents = fetch_incidents()
-            st.session_state.ui_context["incidents"] = incidents
-        except Exception as e:
-            st.warning("⚠ Backend not running. Showing empty incident list.")
-            incidents = []
-
-        for inc in reversed(incidents):
-            st.markdown("### 🚨 Incident")
-            st.json(inc)
-
-        # ===================== ADD-ON: AUTOSYS + DEPLOYMENTS LIVE PANELS =====================
-        st.divider()
-        st.subheader("📡 Correlation Panels: AutoSys + Deployments (UI-only)")
-
-        # session_state stores for demo entries (does not affect backend)
-        if "autosys_events" not in st.session_state:
-            st.session_state.autosys_events = []
-        if "deployment_events" not in st.session_state:
-            st.session_state.deployment_events = []
-
-        top1, top2, top3, top4 = st.columns(4)
-        with top1:
-            st.metric("Incidents", len(incidents) if isinstance(incidents, list) else 0)
-        with top2:
-            st.metric("AutoSys Events (UI)", len(st.session_state.autosys_events))
-        with top3:
-            st.metric("Deployments (UI)", len(st.session_state.deployment_events))
-        with top4:
-            if st.button("🔄 Refresh Page"):
-                st.rerun()
-
-        left, right = st.columns([1, 1])
-
-        # -------- AutoSys Live Panel --------
-        with left:
-            st.markdown("### 🔁 AutoSys Evidence")
-            with st.expander("Add AutoSys Event (Demo / UI-only)", expanded=False):
-                job = st.text_input("Job Name", value="example_job", key="as_job")
-                box = st.text_input("Box", value="", key="as_box")
-                status = st.selectbox("Status", ["FAILURE", "SUCCESS", "RUNNING", "TERMINATED", "ON_HOLD"],
-                                      key="as_status")
-                run_id = st.text_input("Run ID (optional)", value="", key="as_runid")
-                message = st.text_area("Message / Error", value="Job failed due to non-zero exit code", key="as_msg")
-                if st.button("➕ Add AutoSys Event", key="as_add"):
-                    st.session_state.autosys_events.append({
-                        "time": datetime.utcnow().isoformat() + "Z",
-                        "job": job,
-                        "box": box,
-                        "status": status,
-                        "run_id": run_id,
-                        "message": message,
+                    if raw_answer == "NOT_FOUND":
+                        raw_answer = ai_chatbot_response(q, st.session_state.ui_state, st.session_state.vuln_df)
+                    formatted_answer = format_bot_response(raw_answer)
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": formatted_answer
                     })
-                    st.success("AutoSys event added (UI-only).")
-
-            # Filters
-            f1, f2 = st.columns(2)
-            with f1:
-                as_status_filter = st.multiselect(
-                    "Filter Status",
-                    ["FAILURE", "SUCCESS", "RUNNING", "TERMINATED", "ON_HOLD"],
-                    default=["FAILURE", "TERMINATED"],
-                    key="as_filter_status"
-                )
-            with f2:
-                as_search = st.text_input("Search (job/message)", value="", key="as_search")
-
-            def autosys_match(e):
-                if as_status_filter and e.get("status") not in as_status_filter:
-                    return False
-                if as_search.strip():
-                    blob = (str(e.get("job", "")) + " " + str(e.get("message", ""))).lower()
-                    if as_search.lower() not in blob:
-                        return False
-                return True
-
-            filtered_as = [e for e in st.session_state.autosys_events if autosys_match(e)]
-
-            if filtered_as:
-                st.dataframe(filtered_as, use_container_width=True, hide_index=True)
-                st.download_button(
-                    "⬇️ Download AutoSys Evidence (JSON)",
-                    data=json.dumps(filtered_as, indent=2),
-                    file_name="autosys_evidence.json",
-                    mime="application/json"
-                )
-            else:
-                st.info("No AutoSys events yet (or none match filters).")
-
-        # -------- Deployments Live Panel --------
-        with right:
-            st.markdown("### 🚀 Deployment Evidence")
-            with st.expander("Add Deployment Event (Demo / UI-only)", expanded=False):
-                tool = st.selectbox("Tool",
-                                    ["Azure DevOps", "Jenkins", "Argo CD", "GitHub Actions", "GitLab CI", "Other"],
-                                    key="dep_tool")
-                env2 = st.selectbox("Environment", ["Dev", "QA", "UAT", "Prod"], index=1, key="dep_env")
-                service = st.text_input("Service", value="example-service", key="dep_service")
-                version2 = st.text_input("Version/Build", value="1.0.0", key="dep_ver")
-                result = st.selectbox("Result", ["SUCCESS", "FAILED", "IN_PROGRESS"], key="dep_result")
-                link = st.text_input("Pipeline/Run Link (optional)", value="", key="dep_link")
-                notes = st.text_area("Notes", value="Deployment triggered before incident spike", key="dep_notes")
-                if st.button("➕ Add Deployment Event", key="dep_add"):
-                    st.session_state.deployment_events.append({
-                        "time": datetime.utcnow().isoformat() + "Z",
-                        "tool": tool,
-                        "environment": env2,
-                        "service": service,
-                        "version": version2,
-                        "result": result,
-                        "link": link,
-                        "notes": notes,
-                    })
-                    st.success("Deployment event added (UI-only).")
-
-            # Filters
-            d1, d2, d3 = st.columns(3)
-            with d1:
-                dep_env_filter = st.selectbox("Filter Env", ["All", "Dev", "QA", "UAT", "Prod"], index=0,
-                                              key="dep_filter_env")
-            with d2:
-                dep_result_filter = st.multiselect("Filter Result", ["SUCCESS", "FAILED", "IN_PROGRESS"],
-                                                   default=["FAILED"], key="dep_filter_res")
-            with d3:
-                dep_search = st.text_input("Search (service/version)", value="", key="dep_search")
-
-            def dep_match(e):
-                if dep_env_filter != "All" and e.get("environment") != dep_env_filter:
-                    return False
-                if dep_result_filter and e.get("result") not in dep_result_filter:
-                    return False
-                if dep_search.strip():
-                    blob = (str(e.get("service", "")) + " " + str(e.get("version", ""))).lower()
-                    if dep_search.lower() not in blob:
-                        return False
-                return True
-
-            filtered_dep = [e for e in st.session_state.deployment_events if dep_match(e)]
-
-            if filtered_dep:
-                st.dataframe(filtered_dep, use_container_width=True, hide_index=True)
-                st.download_button(
-                    "⬇️ Download Deployment Evidence (JSON)",
-                    data=json.dumps(filtered_dep, indent=2),
-                    file_name="deployment_evidence.json",
-                    mime="application/json"
-                )
-            else:
-                st.info("No deployment events yet (or none match filters).")
-
-        # -------- Optional correlation helper (UI-only) --------
-        st.divider()
-        st.subheader("🧠 Quick Correlation Helper (UI-only)")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### AutoSys ↔ Incident Keywords")
-            st.write(
-                "If you see failures in specific batch jobs, try adding job name into **Keywords** on the console.")
-            st.code("process: java.exe OR job: example_job", language="text")
-
-        with c2:
-            st.markdown("#### Deployments ↔ Incident Timing")
-            st.write("Compare deployment timestamps with incident spike time; add build/version to evidence notes.")
-            st.code("deployment.version: 1.0.0", language="text")
-        # ===================== END ADD-ON =====================
+                    st.rerun()
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        user_query = st.chat_input("Ask me anything about ops…")
+        if user_query:
+            st.session_state.messages.append({
+                "role": "user",
+                "content": user_query
+            })
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking…"):
+                    raw_answer = chatbot_answer_engine(
+                        user_query,
+                        st.session_state.ui_state,
+                        st.session_state.vuln_df
+                    )
+                    if raw_answer == "NOT_FOUND":
+                        raw_answer = ai_chatbot_response(user_query, st.session_state.ui_state, st.session_state.vuln_df)
+                    formatted_answer = format_bot_response(raw_answer)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": formatted_answer
+            })
+            st.rerun()
 
     # with tabs[2]:
     #     st.header("💬 Ops Chatbot")
@@ -1402,7 +768,7 @@ def main_app():
                     )
 
                     if raw_answer == "NOT_FOUND":
-                        raw_answer = external_search_fallback(q)
+                        raw_answer = ai_chatbot_response(q, st.session_state.ui_state, st.session_state.vuln_df)
 
                     formatted_answer = format_bot_response(raw_answer)
 
@@ -1444,7 +810,7 @@ def main_app():
                     )
 
                     if raw_answer == "NOT_FOUND":
-                        raw_answer = external_search_fallback(user_query)
+                        raw_answer = ai_chatbot_response(user_query, st.session_state.ui_state, st.session_state.vuln_df)
 
                     formatted_answer = format_bot_response(raw_answer)
 
