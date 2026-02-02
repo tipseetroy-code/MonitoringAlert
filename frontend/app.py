@@ -378,6 +378,26 @@ textarea {
 </style>
 """, unsafe_allow_html=True)
 
+# ---------------- LOGIN CONFIG (UI-only demo) ----------------
+USERS = {
+    "admin": {
+        "password": "admin@123",
+        "access": "write"
+    },
+    "viewer@example.com": {
+        "password": "viewer123",
+        "access": "read"
+    },
+    "viewer_ey@example.com": {
+        "password": "viewerey123",
+        "access": "write"
+    },
+    "root@example.com": {
+        "password": "root123",
+        "access": "write"
+    }
+}
+
 # Initialize session
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
