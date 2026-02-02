@@ -320,9 +320,6 @@ html, body {
 .login-wrapper {
     display: flex;
     justify-content: center;
-    align-items: center;
-    height: 100%;
-}
 
 # /* Login card */
 # .login-card {
@@ -381,26 +378,6 @@ textarea {
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- LOGIN CONFIG (UI-only demo) ----------------
-USERS = {
-    "admin": {
-        "password": "admin@123",
-        "access": "write"
-    },
-    "viewer@example.com": {
-        "password": "viewer123",
-        "access": "read"
-    },
-    "viewer_ey@example.com": {
-        "password": "viewerey123",
-        "access": "write"
-    },
-    "root@example.com": {
-        "password": "root123",
-        "access": "write"
-    }
-}
-
 # Initialize session
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -418,6 +395,14 @@ if "ui_context" not in st.session_state:
         "disk_issues": "Disk space: /var 85% used, /tmp 20% used. No critical issues.",
         "incidents": []
     }
+
+# Initialize deployment session state
+if "deploy_logs" not in st.session_state:
+    st.session_state.deploy_logs = []
+if "deploy_tags" not in st.session_state:
+    st.session_state.deploy_tags = []
+if "deploy_version" not in st.session_state:
+    st.session_state.deploy_version = ""
 
 
 def login_page():
@@ -488,7 +473,6 @@ def main_app():
             ]
         }
 
-
     tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot"])
 
     # --- Self Healing tab (enhanced) ---
@@ -542,6 +526,17 @@ def main_app():
                     st.info("Incident logged in system.")
                 except:
                     pass
+
+        st.subheader("Disk Space Analysis")
+        if st.button("Analyze Disk Space"):
+            import subprocess
+            result = subprocess.run(['df', '-h'], capture_output=True, text=True)
+            st.code(result.stdout)
+
+        if st.button("Create Dummy File (100MB) for Testing Disk Cleanup"):
+            import subprocess
+            result = subprocess.run(['dd', 'if=/dev/zero', 'of=/tmp/dummy_test', 'bs=1M', 'count=100'], capture_output=True, text=True)
+            st.success("Created 100MB dummy file at /tmp/dummy_test. Check disk usage and trigger self-healing if needed.")
 
     # --- Deployment tab ---
     with tabs[1]:
