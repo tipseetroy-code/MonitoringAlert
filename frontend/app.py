@@ -210,6 +210,85 @@ def send_deployment_email(app_name, version, deployment_type, changes=None):
     """
     return email_subject, email_body
 
+# -------- JIRA INTEGRATION FUNCTIONS --------
+def create_jira_ticket(problem_title, problem_description, priority="Medium", assignee=None):
+    """Create a Jira ticket for unsolved problems"""
+    jira_url = os.getenv("JIRA_URL", "")
+    jira_user = os.getenv("JIRA_USER", "")
+    jira_token = os.getenv("JIRA_API_TOKEN", "")
+    jira_project = os.getenv("JIRA_PROJECT", "OPS")
+    
+    if not all([jira_url, jira_user, jira_token]):
+        return None, "❌ Jira credentials not configured"
+    
+    jira_payload = {
+        "fields": {
+            "project": {"key": jira_project},
+            "summary": problem_title,
+            "description": problem_description,
+            "issuetype": {"name": "Bug"},
+            "priority": {"name": priority},
+            "labels": ["auto-created", "agent-detected", utc_now().split()[0]]
+        }
+    }
+    
+    if assignee:
+        jira_payload["fields"]["assignee"] = {"name": assignee}
+    
+    try:
+        response = requests.post(
+            f"{jira_url}/rest/api/3/issue",
+            json=jira_payload,
+            auth=(jira_user, jira_token),
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201]:
+            ticket_data = response.json()
+            ticket_id = ticket_data.get("key", "")
+            ticket_url = f"{jira_url}/browse/{ticket_id}"
+            return ticket_id, ticket_url
+        else:
+            return None, f"❌ Jira API error: {response.status_code}"
+    except Exception as e:
+        return None, f"❌ Error creating Jira ticket: {str(e)}"
+
+def track_problem(problem_title, problem_description, problem_type, solved=False):
+    """Track problems and auto-create Jira tickets if not solved"""
+    problem = {
+        "id": generate_commit_hash(8),
+        "title": problem_title,
+        "description": problem_description,
+        "type": problem_type,
+        "detected_at": utc_now(),
+        "solved": solved,
+        "jira_ticket": None
+    }
+    
+    # Auto-create Jira ticket if not solved
+    if not solved:
+        ticket_id, result = create_jira_ticket(problem_title, problem_description, priority="High")
+        if ticket_id:
+            problem["jira_ticket"] = ticket_id
+            problem["jira_status"] = "Created"
+        else:
+            problem["jira_status"] = result
+    else:
+        problem["jira_status"] = "N/A (Problem Solved)"
+    
+    return problem
+
+def get_priority_from_severity(severity):
+    """Map severity to Jira priority"""
+    severity_map = {
+        "critical": "Highest",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "info": "Lowest"
+    }
+    return severity_map.get(severity.lower(), "Medium")
+
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
@@ -614,6 +693,12 @@ if "health_check_results" not in st.session_state:
 if "health_check_history" not in st.session_state:
     st.session_state.health_check_history = []
 
+# Initialize problem tracking & Jira state
+if "tracked_problems" not in st.session_state:
+    st.session_state.tracked_problems = []
+if "jira_tickets" not in st.session_state:
+    st.session_state.jira_tickets = []
+
 
 def login_page():
     st.markdown('<div class="login-wrapper"><div class="login-card">', unsafe_allow_html=True)
@@ -683,7 +768,7 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)"])
+    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)", "Problems & Jira"])
 
     # --- Self Healing tab (enhanced) ---
     with tabs[0]:
@@ -1241,6 +1326,270 @@ def main_app():
                         
                         for result in hist_results:
                             st.write(f"- {result['AppName']}: {result['Result']}")
+
+    # --- Problems & Jira Tickets tab ---
+    with tabs[4]:
+        st.header("🎟️ Problem Tracking & Auto-Created Jira Tickets")
+        
+        st.markdown("""
+        **Auto-Jira Feature:**
+        - 🔍 Agent detects problems during monitoring
+        - ✅ If solved by agent → No ticket
+        - ❌ If NOT solved by agent → Auto-create Jira ticket
+        - 📧 Team gets notified in Jira
+        """)
+        
+        st.divider()
+        
+        # Jira Configuration
+        with st.expander("⚙️ Jira Configuration", expanded=False):
+            st.subheader("Jira Credentials Setup")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                jira_url = st.text_input(
+                    "Jira URL",
+                    value=os.getenv("JIRA_URL", ""),
+                    placeholder="https://your-company.atlassian.net"
+                )
+            with col2:
+                jira_user = st.text_input(
+                    "Jira Email",
+                    value=os.getenv("JIRA_USER", ""),
+                    placeholder="your-email@company.com"
+                )
+            
+            jira_token = st.text_input(
+                "Jira API Token",
+                value=os.getenv("JIRA_API_TOKEN", ""),
+                type="password",
+                placeholder="Your Jira API token"
+            )
+            
+            jira_project = st.text_input(
+                "Jira Project Key",
+                value=os.getenv("JIRA_PROJECT", "OPS"),
+                placeholder="e.g., OPS, SRE, INFRA"
+            )
+            
+            if st.button("💾 Save Jira Config", use_container_width=True):
+                if jira_url and jira_user and jira_token and jira_project:
+                    os.environ["JIRA_URL"] = jira_url
+                    os.environ["JIRA_USER"] = jira_user
+                    os.environ["JIRA_API_TOKEN"] = jira_token
+                    os.environ["JIRA_PROJECT"] = jira_project
+                    st.success("✅ Jira configuration saved!")
+                else:
+                    st.error("❌ Please fill all Jira fields")
+        
+        st.divider()
+        
+        # Manual Problem Reporting
+        st.subheader("📝 Manual Problem Report")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            problem_title = st.text_input(
+                "Problem Title",
+                placeholder="e.g., Database connection timeout",
+                key="problem_title"
+            )
+        with col2:
+            problem_type = st.selectbox(
+                "Problem Type",
+                ["Database", "Network", "Disk Space", "CPU", "Memory", "Application Error", "SSL Certificate", "Other"],
+                key="problem_type"
+            )
+        
+        problem_description = st.text_area(
+            "Problem Description & Details",
+            placeholder="Describe the issue, affected services, error messages, etc.",
+            height=100,
+            key="problem_desc"
+        )
+        
+        problem_severity = st.selectbox(
+            "Severity",
+            ["Critical", "High", "Medium", "Low", "Info"],
+            key="problem_severity"
+        )
+        
+        problem_solved = st.checkbox(
+            "✅ Was this problem solved by the agent?",
+            value=False,
+            key="problem_solved"
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔧 Report & Track Problem", use_container_width=True):
+                if problem_title and problem_description:
+                    problem = track_problem(
+                        problem_title,
+                        problem_description,
+                        problem_type,
+                        solved=problem_solved
+                    )
+                    
+                    st.session_state.tracked_problems.append(problem)
+                    
+                    if problem["jira_ticket"]:
+                        st.session_state.jira_tickets.append({
+                            "ticket_id": problem["jira_ticket"],
+                            "problem_id": problem["id"],
+                            "created_at": utc_now(),
+                            "title": problem_title,
+                            "severity": problem_severity
+                        })
+                        st.success(f"✅ Problem tracked! Jira ticket: `{problem['jira_ticket']}`")
+                    else:
+                        if problem_solved:
+                            st.success("✅ Problem tracked as SOLVED - No Jira ticket needed")
+                        else:
+                            st.warning(f"⚠️ {problem['jira_status']}")
+                else:
+                    st.error("❌ Please fill in problem title and description")
+        
+        with col2:
+            if st.button("🔄 Refresh List", use_container_width=True):
+                st.rerun()
+        
+        with col3:
+            if st.button("🗑️ Clear All", use_container_width=True):
+                st.session_state.tracked_problems = []
+                st.session_state.jira_tickets = []
+                st.rerun()
+        
+        st.divider()
+        
+        # Display Tracked Problems
+        if st.session_state.tracked_problems:
+            st.subheader(f"📊 Tracked Problems ({len(st.session_state.tracked_problems)})")
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_problems = len(st.session_state.tracked_problems)
+            solved_problems = len([p for p in st.session_state.tracked_problems if p["solved"]])
+            unsolved_problems = total_problems - solved_problems
+            jira_tickets_created = len([p for p in st.session_state.tracked_problems if p["jira_ticket"]])
+            
+            with col1:
+                st.metric("Total Problems", total_problems)
+            with col2:
+                st.metric("✅ Solved", solved_problems)
+            with col3:
+                st.metric("❌ Unsolved", unsolved_problems)
+            with col4:
+                st.metric("🎟️ Jira Tickets", jira_tickets_created)
+            
+            st.divider()
+            
+            # Problems table
+            st.write("### All Tracked Problems")
+            
+            for idx, problem in enumerate(st.session_state.tracked_problems):
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    
+                    with col1:
+                        status_icon = "✅" if problem["solved"] else "❌"
+                        st.write(f"**{status_icon} {problem['title']}**")
+                        st.caption(f"Type: {problem['type']} | Detected: {problem['detected_at']}")
+                        st.write(problem['description'][:150] + "..." if len(problem['description']) > 150 else problem['description'])
+                    
+                    with col2:
+                        if problem["jira_ticket"]:
+                            st.success(f"🎟️ {problem['jira_ticket']}")
+                        else:
+                            st.info("No ticket" if problem["solved"] else "Pending")
+                    
+                    with col3:
+                        if st.button("📌 View", key=f"view_problem_{idx}"):
+                            with st.expander("Full Details"):
+                                st.json(problem)
+        
+        else:
+            st.info("ℹ️ No tracked problems yet. Report issues to get started!")
+        
+        st.divider()
+        
+        # Jira Tickets Display
+        if st.session_state.jira_tickets:
+            st.subheader(f"🎟️ Auto-Created Jira Tickets ({len(st.session_state.jira_tickets)})")
+            
+            for ticket in st.session_state.jira_tickets:
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    
+                    with col1:
+                        st.write(f"**{ticket['ticket_id']}** - {ticket['title']}")
+                        st.caption(f"Severity: {ticket['severity']} | Created: {ticket['created_at']}")
+                    
+                    with col2:
+                        st.success("Auto-Created ✅")
+                    
+                    with col3:
+                        if st.button("🔗 Open", key=f"open_ticket_{ticket['ticket_id']}"):
+                            jira_url = os.getenv("JIRA_URL", "")
+                            if jira_url:
+                                ticket_url = f"{jira_url}/browse/{ticket['ticket_id']}"
+                                st.write(f"Open: {ticket_url}")
+        
+        st.divider()
+        
+        # Agent Problem Detection Demo
+        st.subheader("🤖 Simulate Agent Problem Detection")
+        
+        if st.button("🚨 Simulate: High CPU Usage Detected", use_container_width=True):
+            problem = track_problem(
+                "High CPU Usage on prod-server-1",
+                "CPU usage has exceeded 95% for 5+ minutes. Processes: java (45%), nginx (30%), mysql (15%)",
+                "CPU",
+                solved=False
+            )
+            st.session_state.tracked_problems.append(problem)
+            if problem["jira_ticket"]:
+                st.session_state.jira_tickets.append({
+                    "ticket_id": problem["jira_ticket"],
+                    "problem_id": problem["id"],
+                    "created_at": utc_now(),
+                    "title": problem["title"],
+                    "severity": "Critical"
+                })
+            st.success(f"✅ Auto-created Jira: {problem.get('jira_ticket', 'Pending')}")
+            st.rerun()
+        
+        if st.button("🚨 Simulate: Database Connection Failed", use_container_width=True):
+            problem = track_problem(
+                "Database Connection Timeout",
+                "Unable to connect to MySQL database. Error: Connection refused on 10.0.1.5:3306",
+                "Database",
+                solved=False
+            )
+            st.session_state.tracked_problems.append(problem)
+            if problem["jira_ticket"]:
+                st.session_state.jira_tickets.append({
+                    "ticket_id": problem["jira_ticket"],
+                    "problem_id": problem["id"],
+                    "created_at": utc_now(),
+                    "title": problem["title"],
+                    "severity": "Critical"
+                })
+            st.success(f"✅ Auto-created Jira: {problem.get('jira_ticket', 'Pending')}")
+            st.rerun()
+        
+        if st.button("✅ Simulate: Agent Fixed Disk Space Issue", use_container_width=True):
+            problem = track_problem(
+                "Disk Space Issue - RESOLVED",
+                "Agent detected /var at 92% usage. Automatically cleaned up old logs and freed 50GB. Issue resolved.",
+                "Disk Space",
+                solved=True
+            )
+            st.session_state.tracked_problems.append(problem)
+            st.success("✅ Problem solved by agent - No Jira ticket created")
+            st.rerun()
 
 if not st.session_state.logged_in:
     login_page()
