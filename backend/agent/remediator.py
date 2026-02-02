@@ -4,7 +4,6 @@ import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
 from ..config import AgentConfig
-from ..templates.email_template import get_email_template
 
 def send_notification(subject, body, to_email):
     config = AgentConfig()
