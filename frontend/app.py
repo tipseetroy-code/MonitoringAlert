@@ -280,7 +280,7 @@ def create_jira_ticket(problem_title, problem_description, priority="Medium", as
                     }
                 ]
             },
-            "issuetype": {"name": "Bug"},
+            "issuetype": {"name": "Task"},
             "priority": {"name": jira_priority},
             "labels": ["auto-created", "agent-detected", utc_now().split()[0]]
         }
