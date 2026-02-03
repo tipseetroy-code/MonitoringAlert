@@ -843,6 +843,7 @@ def main_app():
         st.subheader(f"Agent Status: {'🟢 Running (24/7)' if agent_running else '🔴 Stopped (Backend unavailable)'}")
 
         st.subheader("SSL Certificate Management")
+        st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
         ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com")
         ssl_action = st.selectbox("Action", ["Renew Certificate", "Vault Certificate", "Check Status"])
         
@@ -851,10 +852,16 @@ def main_app():
                 with st.spinner("Processing..."):
                     if ssl_action == "Renew Certificate":
                         # Simulate renewal
-                        st.success(f"SSL certificate for '{ssl_domain}' renewed successfully. App restarted and notifications sent.")
+                        st.success(
+                            f"SSL certificate for '{ssl_domain}' renewed successfully. "
+                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+                        )
                         # Could call backend API here if available
                     elif ssl_action == "Vault Certificate":
-                        st.success(f"Certificate for '{ssl_domain}' vaulted securely. App restarted and notifications sent.")
+                        st.success(
+                            f"Certificate for '{ssl_domain}' vaulted securely. "
+                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+                        )
                     elif ssl_action == "Check Status":
                         # Mock status
                         status = "Valid" if random.choice([True, False]) else "Expired"

@@ -6,6 +6,8 @@ import os
 from datetime import datetime, timedelta
 import time
 
+CONFLUENCE_KB_URL = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+
 st.set_page_config(
     page_title="SSL Certificate & Vault Management POC",
     layout="wide",
@@ -76,70 +78,50 @@ def check_ssl_status(domain):
         return None
 
 def renew_certificate(domain):
-    """Renew SSL certificate"""
+    """Renew SSL certificate (steps sourced from Confluence)"""
     steps = []
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Checking current certificate for {domain}")
-    time.sleep(0.5)
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Generating new CSR (Certificate Signing Request)")
-    time.sleep(0.5)
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Requesting certificate from CA (Let's Encrypt)")
-    time.sleep(0.5)
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Certificate issued successfully")
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Installing certificate on server")
-    time.sleep(0.5)
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Restarting web server (nginx/apache)")
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Verifying SSL handshake")
-    time.sleep(0.5)
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Certificate renewed successfully!")
+
+    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Renewal initiated for {domain}")
+    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] 📘 Follow SOP steps in Confluence: {CONFLUENCE_KB_URL}")
+    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Renewal completed per Confluence SOP")
     steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] New expiry date: {(datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')}")
-    
+
     return steps
 
 def vault_certificate(domain, vault_manager):
-    """Vault SSL certificate"""
+    """Vault SSL certificate (steps sourced from Confluence)"""
     steps = []
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Retrieving certificate from server: {domain}")
-    time.sleep(0.5)
-    
+
+    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Vaulting initiated for {domain}")
+    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] 📘 Follow SOP steps in Confluence: {CONFLUENCE_KB_URL}")
+
     cert_data = {
         "cert": f"-----BEGIN CERTIFICATE-----\nCERT_DATA_FOR_{domain}\n-----END CERTIFICATE-----",
         "key": "-----BEGIN PRIVATE KEY-----\nKEY_DATA\n-----END PRIVATE KEY-----",
         "chain": "-----BEGIN CERTIFICATE-----\nINTERMEDIATE_CERT\n-----END CERTIFICATE-----",
         "expiry": (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
     }
-    
-    steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Encrypting certificate data")
-    time.sleep(0.5)
-    
+
     success, vault_path = vault_manager.store_certificate(domain, cert_data)
-    
+
     if success:
-        steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Certificate stored in vault")
+        steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Vaulting completed per Confluence SOP")
         steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Vault path: {vault_path}")
-        steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Updating access policies")
-        time.sleep(0.5)
-        steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] Restarting application with vault reference")
-        steps.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Vaulting complete - Certificate secured")
-    
+
     return steps, vault_path
 
 # Main App
 st.title("🔐 SSL Certificate & Vault Management - POC")
 
-st.markdown("""
+st.markdown(f"""
 **Features:**
 - 📊 Load certificates from CSV
 - 🔍 Real-time SSL status checking
-- 🔄 Certificate renewal automation
-- 🔒 HashiCorp Vault integration (mock)
+- 🔄 Certificate renewal automation (SOP from Confluence)
+- 🔒 HashiCorp Vault integration (SOP from Confluence)
 - ⚙️ Automated certificate rotation
+
+**SOP Reference:** {CONFLUENCE_KB_URL}
 """)
 
 # Initialize vault manager
@@ -227,14 +209,10 @@ with tabs[0]:
 with tabs[1]:
     st.header("🔄 SSL Certificate Renewal")
     
-    st.markdown("""
+    st.markdown(f"""
     **Automated SSL Renewal Process:**
-    1. Check current certificate status
-    2. Generate new CSR
-    3. Request certificate from CA
-    4. Install on server
-    5. Restart services
-    6. Verify SSL handshake
+    - Follow the official SOP in Confluence
+    - Reference: {CONFLUENCE_KB_URL}
     """)
     
     col1, col2 = st.columns(2)
@@ -282,13 +260,10 @@ with tabs[1]:
 with tabs[2]:
     st.header("🔒 Vault Certificate Management")
     
-    st.markdown("""
+    st.markdown(f"""
     **HashiCorp Vault Integration:**
-    - Secure storage for SSL certificates
-    - Encrypted private keys
-    - Access control policies
-    - Audit logging
-    - Automatic rotation support
+    - Follow the official SOP in Confluence
+    - Reference: {CONFLUENCE_KB_URL}
     """)
     
     col1, col2 = st.columns(2)
