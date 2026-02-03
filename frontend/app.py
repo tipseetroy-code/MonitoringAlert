@@ -211,23 +211,77 @@ def send_deployment_email(app_name, version, deployment_type, changes=None):
     return email_subject, email_body
 
 # -------- JIRA INTEGRATION FUNCTIONS --------
+def validate_jira_connection(jira_url, jira_user, jira_token, jira_project):
+    """Validate Jira API connection and credentials"""
+    if not all([jira_url, jira_user, jira_token, jira_project]):
+        return False, "❌ Missing Jira credentials (URL, User, Token, or Project)"
+    
+    try:
+        # Test API connection with project endpoint
+        response = requests.get(
+            f"{jira_url}/rest/api/3/project/{jira_project}",
+            auth=(jira_user, jira_token),
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            project_data = response.json()
+            project_name = project_data.get("name", "Unknown")
+            return True, f"✅ Connected to Jira project: {project_name} ({jira_project})"
+        elif response.status_code == 401:
+            return False, "❌ Authentication failed - check email and API token"
+        elif response.status_code == 403:
+            return False, "❌ Permission denied - user doesn't have access to project"
+        elif response.status_code == 404:
+            return False, f"❌ Project '{jira_project}' not found"
+        else:
+            return False, f"❌ Jira API error: {response.status_code} - {response.text[:100]}"
+    except Exception as e:
+        return False, f"❌ Connection error: {str(e)}"
+
 def create_jira_ticket(problem_title, problem_description, priority="Medium", assignee=None):
     """Create a Jira ticket for unsolved problems"""
     jira_url = os.getenv("JIRA_URL", "")
     jira_user = os.getenv("JIRA_USER", "")
     jira_token = os.getenv("JIRA_API_TOKEN", "")
-    jira_project = os.getenv("JIRA_PROJECT", "OPS")
+    jira_project = os.getenv("JIRA_PROJECT", "KAN")
     
     if not all([jira_url, jira_user, jira_token]):
         return None, "❌ Jira credentials not configured"
     
+    # Map priority to Jira priority names
+    priority_map = {
+        "Highest": "Highest",
+        "High": "High",
+        "Medium": "Medium",
+        "Low": "Low",
+        "Lowest": "Lowest",
+        "Critical": "Highest",
+        "Info": "Lowest"
+    }
+    jira_priority = priority_map.get(priority, "Medium")
+    
     jira_payload = {
         "fields": {
             "project": {"key": jira_project},
-            "summary": problem_title,
-            "description": problem_description,
+            "summary": problem_title[:255],  # Jira limit
+            "description": {
+                "version": 1,
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": problem_description
+                            }
+                        ]
+                    }
+                ]
+            },
             "issuetype": {"name": "Bug"},
-            "priority": {"name": priority},
+            "priority": {"name": jira_priority},
             "labels": ["auto-created", "agent-detected", utc_now().split()[0]]
         }
     }
@@ -248,8 +302,13 @@ def create_jira_ticket(problem_title, problem_description, priority="Medium", as
             ticket_id = ticket_data.get("key", "")
             ticket_url = f"{jira_url}/browse/{ticket_id}"
             return ticket_id, ticket_url
+        elif response.status_code == 401:
+            return None, "❌ Jira authentication failed - check credentials"
+        elif response.status_code == 403:
+            return None, "❌ Permission denied - cannot create issue in this project"
         else:
-            return None, f"❌ Jira API error: {response.status_code}"
+            error_msg = response.json().get("errorMessages", [str(response.status_code)])
+            return None, f"❌ Jira error: {error_msg[0] if error_msg else response.status_code}"
     except Exception as e:
         return None, f"❌ Error creating Jira ticket: {str(e)}"
 
@@ -1342,20 +1401,20 @@ def main_app():
         st.divider()
         
         # Jira Configuration
-        with st.expander("⚙️ Jira Configuration", expanded=False):
+        with st.expander("⚙️ Jira Configuration", expanded=True):
             st.subheader("Jira Credentials Setup")
             
             col1, col2 = st.columns(2)
             with col1:
                 jira_url = st.text_input(
                     "Jira URL",
-                    value=os.getenv("JIRA_URL", ""),
+                    value=os.getenv("JIRA_URL", "https://teammeenakshi.atlassian.net"),
                     placeholder="https://your-company.atlassian.net"
                 )
             with col2:
                 jira_user = st.text_input(
                     "Jira Email",
-                    value=os.getenv("JIRA_USER", ""),
+                    value=os.getenv("JIRA_USER", "porselvi.baskar@in.ey.com"),
                     placeholder="your-email@company.com"
                 )
             
@@ -1363,24 +1422,46 @@ def main_app():
                 "Jira API Token",
                 value=os.getenv("JIRA_API_TOKEN", ""),
                 type="password",
-                placeholder="Your Jira API token"
+                placeholder="Get from https://id.atlassian.com/manage-profile/security/api-tokens"
             )
             
             jira_project = st.text_input(
                 "Jira Project Key",
-                value=os.getenv("JIRA_PROJECT", "OPS"),
-                placeholder="e.g., OPS, SRE, INFRA"
+                value=os.getenv("JIRA_PROJECT", "KAN"),
+                placeholder="e.g., KAN, OPS, SRE"
             )
             
-            if st.button("💾 Save Jira Config", use_container_width=True):
-                if jira_url and jira_user and jira_token and jira_project:
-                    os.environ["JIRA_URL"] = jira_url
-                    os.environ["JIRA_USER"] = jira_user
-                    os.environ["JIRA_API_TOKEN"] = jira_token
-                    os.environ["JIRA_PROJECT"] = jira_project
-                    st.success("✅ Jira configuration saved!")
-                else:
-                    st.error("❌ Please fill all Jira fields")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("💾 Save Config", use_container_width=True):
+                    if jira_url and jira_user and jira_token and jira_project:
+                        os.environ["JIRA_URL"] = jira_url
+                        os.environ["JIRA_USER"] = jira_user
+                        os.environ["JIRA_API_TOKEN"] = jira_token
+                        os.environ["JIRA_PROJECT"] = jira_project
+                        st.success("✅ Jira configuration saved!")
+                    else:
+                        st.error("❌ Please fill all Jira fields")
+            
+            with col2:
+                if st.button("🧪 Test Connection", use_container_width=True):
+                    if jira_url and jira_user and jira_token and jira_project:
+                        valid, message = validate_jira_connection(jira_url, jira_user, jira_token, jira_project)
+                        if valid:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.error("❌ Please fill all fields first")
+            
+            with col3:
+                if st.button("📖 Get API Token", use_container_width=True):
+                    st.info("🔗 Visit: https://id.atlassian.com/manage-profile/security/api-tokens")
+                    st.info("Steps:\n1. Click 'Create API token'\n2. Copy the token\n3. Paste above")
+            
+            st.divider()
+            st.caption("💡 **Tip:** Credentials are stored in environment variables and persisted during session")
         
         st.divider()
         
