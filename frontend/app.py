@@ -826,6 +826,8 @@ if "app_path" not in st.session_state:
     st.session_state.app_path = None
 if "current_version" not in st.session_state:
     st.session_state.current_version = "1.0.0"
+if "release_history" not in st.session_state:
+    st.session_state.release_history = []
 
 # Initialize health check state
 if "health_check_results" not in st.session_state:
@@ -1070,6 +1072,17 @@ def main_app():
                 ["prod", "staging", "dev"],
                 index=1
             )
+
+        # Previous release info (per app/env)
+        prev_release = None
+        for entry in reversed(st.session_state.release_history):
+            if entry.get("app") == app_name and entry.get("env") == deploy_env:
+                prev_release = entry
+                break
+        if prev_release:
+            st.info(f"🧾 Previous release date: {prev_release.get('timestamp')} (v{prev_release.get('version')})")
+        else:
+            st.info("🧾 Previous release date: Not available")
         
         new_version = st.text_input(
             "Target Version / Build Tag",
@@ -1100,6 +1113,12 @@ def main_app():
         code_changes = st.text_area(
             "Code Changes / Commit Messages",
             placeholder="e.g.,\n- Fixed bug in login module\n- Updated dependencies\n- Refactored database queries",
+            height=80
+        )
+
+        release_summary = st.text_area(
+            "Release Summary (SRE)",
+            placeholder="e.g.,\n- Risk: Low\n- Rollback: Available\n- Monitoring: Login errors, latency p95",
             height=80
         )
         
@@ -1148,6 +1167,8 @@ def main_app():
                 st.write(f"**Email Notification:** {'✅ Yes' if notify_email else '❌ No'}")
                 if code_changes:
                     st.write(f"**Changes:** {code_changes[:100]}...")
+                if release_summary:
+                    st.write(f"**Release Summary:** {release_summary[:120]}...")
         
         # Deployment Execution
         if deploy_button:
@@ -1208,6 +1229,13 @@ def main_app():
                         "deployed", deployment_type.lower(), deploy_env, 
                         f"v{new_version}", jenkins_build_id
                     ]
+                    st.session_state.release_history.append({
+                        "timestamp": utc_now(),
+                        "app": app_name,
+                        "env": deploy_env,
+                        "version": new_version,
+                        "summary": release_summary or ""
+                    })
                     
                     st.success("✅ Deployment completed successfully!")
         
@@ -1237,6 +1265,10 @@ def main_app():
                 st.metric("Environment", deploy_env)
             with col4:
                 st.metric("Status", "✅ Success")
+
+            if release_summary:
+                st.subheader("🧾 Release Summary")
+                st.write(release_summary)
             
             # Tags
             if st.session_state.deploy_tags:
