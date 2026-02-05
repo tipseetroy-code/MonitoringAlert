@@ -1545,7 +1545,7 @@ def main_app():
 
         st.subheader("⚡ Quick SSL Actions")
         ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com", key="ssl_quick_domain")
-        ssl_action = st.selectbox("Action", ["Renew Certificate", "Vault Certificate", "Check Status"], key="ssl_quick_action")
+        ssl_action = st.selectbox("Action", ["Renew Certificate", "Check Status"], key="ssl_quick_action")
 
         if st.button("Execute SSL Action", key="ssl_quick_execute"):
             if ssl_domain:
@@ -1553,11 +1553,6 @@ def main_app():
                     if ssl_action == "Renew Certificate":
                         st.success(
                             f"SSL certificate for '{ssl_domain}' renewed successfully. "
-                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
-                        )
-                    elif ssl_action == "Vault Certificate":
-                        st.success(
-                            f"Certificate for '{ssl_domain}' vaulted securely. "
                             f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
                         )
                     elif ssl_action == "Check Status":
@@ -1574,26 +1569,14 @@ def main_app():
 
         st.divider()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🔄 Renew SSL (SOP-Driven)")
-            renew_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_renew_domain")
-            if st.button("Start Renewal", use_container_width=True):
-                if renew_domain:
-                    for step in ssl_renew_steps(renew_domain):
-                        st.info(step)
-                else:
-                    st.error("Please enter a domain")
-
-        with col2:
-            st.subheader("🔒 Vault Certificate (SOP-Driven)")
-            vault_domain = st.text_input("Domain to Vault", placeholder="example.com", key="ssl_vault_domain")
-            if st.button("Start Vaulting", use_container_width=True):
-                if vault_domain:
-                    for step in ssl_vault_steps(vault_domain):
-                        st.info(step)
-                else:
-                    st.error("Please enter a domain")
+        st.subheader("🔄 Renew SSL (SOP-Driven)")
+        renew_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_renew_domain")
+        if st.button("Start Renewal", use_container_width=True):
+            if renew_domain:
+                for step in ssl_renew_steps(renew_domain):
+                    st.info(step)
+            else:
+                st.error("Please enter a domain")
 
     # --- Problems & Jira Tickets tab ---
     with tabs[5]:
