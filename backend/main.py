@@ -4,6 +4,16 @@ from .services.storage import INCIDENTS
 
 app = FastAPI(title="Agent Automation API")
 
+
+@app.get("/health/ok")
+def health_ok():
+    return {"status": "OK", "message": "Service is healthy"}
+
+
+@app.get("/health/fail", status_code=500)
+def health_fail():
+    return {"status": "FAIL", "message": "Service is unhealthy"}
+
 @app.on_event("startup")
 async def startup_event():
     # Auto-start the agent for 24/7 monitoring

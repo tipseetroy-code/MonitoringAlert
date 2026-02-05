@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 from api_client import start_agent, stop_agent, simulate_incident, fetch_incidents
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
-from datetime import datetime, timezone, time
+from datetime import datetime, timezone, time, timedelta
 import json
 import csv
 import os
@@ -56,10 +56,30 @@ def load_apps_csv(file_path="apps.csv"):
 def check_app_health(app):
     """Check single app health"""
     try:
-        response = requests.get(app["URL"], timeout=8, verify=False)
+        response = requests.get(app["URL"], timeout=8, verify=False, allow_redirects=True)
         status = response.status_code
         content = response.text.strip()
-        if app["Expected"] in content:
+        expected = (app.get("Expected") or "").strip()
+
+        # If Expected is empty, treat any 2xx/3xx as healthy
+        if not expected:
+            if 200 <= status < 400:
+                return {
+                    "AppName": app["AppName"],
+                    "URL": app["URL"],
+                    "Status": status,
+                    "Result": "✅ OK",
+                    "Color": "green"
+                }
+            return {
+                "AppName": app["AppName"],
+                "URL": app["URL"],
+                "Status": status,
+                "Result": "❌ Unhealthy status",
+                "Color": "red"
+            }
+
+        if expected.lower() in content.lower():
             return {
                 "AppName": app["AppName"],
                 "URL": app["URL"],
@@ -348,14 +368,76 @@ def get_priority_from_severity(severity):
     }
     return severity_map.get(severity.lower(), "Medium")
 
+def load_ssl_certificates_csv(file_path="ssl_certificates.csv"):
+    """Load SSL certificate inventory from CSV"""
+    try:
+        if os.path.exists(file_path):
+            return pd.read_csv(file_path)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+def ssl_renew_steps(domain):
+    """SOP-driven SSL renewal steps"""
+    confluence_url = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+    return [
+        f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Renewal initiated for {domain}",
+        f"[{datetime.now().strftime('%H:%M:%S')}] 📘 Follow SOP steps in Confluence: {confluence_url}",
+        f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Renewal completed per Confluence SOP",
+        f"[{datetime.now().strftime('%H:%M:%S')}] New expiry date: {(datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')}"
+    ]
+
+def ssl_vault_steps(domain):
+    """SOP-driven SSL vaulting steps"""
+    confluence_url = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+    return [
+        f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Vaulting initiated for {domain}",
+        f"[{datetime.now().strftime('%H:%M:%S')}] 📘 Follow SOP steps in Confluence: {confluence_url}",
+        f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Vaulting completed per Confluence SOP",
+        f"[{datetime.now().strftime('%H:%M:%S')}] Vault path: secret/ssl/{domain}"
+    ]
+
+
+def search_confluence(query):
+    """Search Confluence for relevant documentation"""
+    confluence_url = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+    try:
+        # Mock Confluence search (in production, use Confluence API)
+        # For now, return reference to SOP page
+        return f"📘 Found in Confluence: {confluence_url}"
+    except:
+        return None
+
+def web_search(query):
+    """Perform web search (mock for now)"""
+    try:
+        # In production, use Google Custom Search API or similar
+        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        return f"🌐 Web results available at: {search_url}"
+    except:
+        return None
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
     from google.generativeai import GenerativeModel
     
     api_key = os.getenv("GOOGLE_API_KEY", "")
+    
+    # Step 1: Try Confluence first
+    confluence_result = search_confluence(user_query)
+    if confluence_result:
+        return confluence_result
+    
+    # Step 2: Try web search
+    web_result = web_search(user_query)
+    if web_result:
+        web_response = f"{web_result}\n\n"
+    else:
+        web_response = ""
+    
+    # Step 3: Fall back to LLM
     if not api_key:
-        return "AI search not available: GOOGLE_API_KEY not set."
+        return f"{web_response}AI search not available: GOOGLE_API_KEY not set."
     
     # Prepare context
     context_info = f"""
@@ -372,15 +454,15 @@ Vulnerability KB (if available): {vuln_df.head(3).to_dict() if vuln_df is not No
 You are an advanced DevOps Engineer AI chatbot for system monitoring and incident response.
 
 Your role:
-1. Monitor and respond to system issues autonomously.
-2. Provide troubleshooting steps based on best practices from your knowledge.
-3. If you can rectify the issue, provide the steps taken.
-4. If unable to rectify, suggest sending an email with detailed resolution steps to the concerned team.
+1. Answer user queries by searching Confluence documentation first
+2. If not in Confluence, perform web search and check current knowledge
+3. Provide troubleshooting steps based on best practices
+4. Suggest escalation if unable to resolve
 
 Capabilities:
-- Access system metrics and incidents.
-- Provide troubleshooting advice based on knowledge.
-- Suggest automated emails with remediation steps.
+- Access system metrics and incidents
+- Provide troubleshooting advice
+- Suggest automated emails with remediation steps
 
 Context: {context_info}
 
@@ -393,20 +475,19 @@ Respond helpfully, provide actionable steps, and escalate if needed.
             system_instruction=system_prompt
         )
         
-        full_query = f"User query: {user_query}\n\nBased on the system context above, provide a DevOps engineer response."
+        full_query = f"User query: {user_query}\n\nBased on the system context and web search results above, provide a DevOps engineer response."
         response = model.generate_content(full_query)
         
+        llm_response = ""
         if response.candidates and response.candidates[0].content:
             parts = response.candidates[0].content.parts
-            result = ""
             for part in parts:
                 if hasattr(part, 'text'):
-                    result += part.text
-            return result.strip() if result else "AI response generated, but no text content."
-        else:
-            return "AI could not generate a response."
+                    llm_response += part.text
+        
+        return f"{web_response}**AI Response:**\n{llm_response.strip()}" if llm_response else f"{web_response}AI could not generate a response."
     except Exception as e:
-        return f"AI chatbot error: {str(e)}"
+        return f"{web_response}AI error: {str(e)}"
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 
@@ -758,6 +839,10 @@ if "tracked_problems" not in st.session_state:
 if "jira_tickets" not in st.session_state:
     st.session_state.jira_tickets = []
 
+# Initialize SSL certificate inventory
+if "ssl_certs_df" not in st.session_state:
+    st.session_state.ssl_certs_df = load_ssl_certificates_csv("ssl_certificates.csv")
+
 
 def login_page():
     st.markdown('<div class="login-wrapper"><div class="login-card">', unsafe_allow_html=True)
@@ -827,7 +912,7 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)", "Problems & Jira"])
+    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)", "SSL & Vault POC", "Problems & Jira"])
 
     # --- Self Healing tab (enhanced) ---
     with tabs[0]:
@@ -869,25 +954,38 @@ def main_app():
             else:
                 st.error("Please enter a domain.")
 
-        st.subheader("Self-Healing Triggers")
-        healing_issue = st.selectbox("Issue Type", ["Disk Space Low", "App Down (not disk)", "URL Down", "Service Restart"])
-        
-        if st.button("Trigger Self-Healing"):
-            with st.spinner("Self-healing in progress..."):
-                if healing_issue == "Disk Space Low":
-                    st.success("Disk space issue detected. Cleared logs and restarted app. See [Confluence KB](https://teammeenakshi.atlassian.net/wiki/x/AgAH) for details.")
-                elif healing_issue == "App Down (not disk)":
-                    st.success("App was down. Self-healing triggered: App brought up successfully.")
-                elif healing_issue == "URL Down":
-                    st.success("URL down detected. Self-healing applied: Service restarted.")
-                elif healing_issue == "Service Restart":
-                    st.success("Service restarted successfully.")
-                # Log to backend if possible
-                try:
-                    simulate_incident()  # Trigger incident simulation
-                    st.info("Incident logged in system.")
-                except:
-                    pass
+        st.subheader("EPAS Live URL")
+        epas_url = st.text_input(
+            "EPAS Health URL",
+            value="http://18.237.102.97:8000/health/epas",
+            help="Use your live EPAS health endpoint"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Check EPAS Health"):
+                with st.spinner("Checking EPAS health..."):
+                    try:
+                        resp = requests.get(epas_url, timeout=8, verify=False)
+                        if resp.status_code == 200:
+                            st.success(f"✅ EPAS is healthy: {resp.text}")
+                        else:
+                            st.error(f"❌ EPAS unhealthy (status {resp.status_code}): {resp.text}")
+                    except Exception as e:
+                        st.error(f"❌ EPAS check failed: {str(e)}")
+
+        with col2:
+            if st.button("Restart EPAS"):
+                with st.spinner("Restarting EPAS..."):
+                    try:
+                        restart_url = epas_url.replace("/health/epas", "/epas/restart")
+                        resp = requests.post(restart_url, timeout=8, verify=False)
+                        if resp.status_code in (200, 201):
+                            st.success(f"✅ EPAS restart triggered: {resp.text}")
+                        else:
+                            st.error(f"❌ Restart failed (status {resp.status_code}): {resp.text}")
+                    except Exception as e:
+                        st.error(f"❌ Restart failed: {str(e)}")
 
         st.subheader("Disk Space Analysis")
         if st.button("Analyze Disk Space"):
@@ -1182,7 +1280,7 @@ def main_app():
                         st.session_state.vuln_df
                     )
 
-                    if raw_answer == "NOT_FOUND":
+                    if raw_answer == "NOT_FOUND" or raw_answer is None:
                         raw_answer = ai_chatbot_response(q, st.session_state.ui_state, st.session_state.vuln_df)
 
                     formatted_answer = format_bot_response(raw_answer)
@@ -1224,7 +1322,8 @@ def main_app():
                         st.session_state.vuln_df
                     )
 
-                    if raw_answer == "NOT_FOUND":
+                    # If no matching rule found, fall back to Confluence + Web + LLM
+                    if raw_answer == "NOT_FOUND" or raw_answer is None:
                         raw_answer = ai_chatbot_response(user_query, st.session_state.ui_state, st.session_state.vuln_df)
 
                     formatted_answer = format_bot_response(raw_answer)
@@ -1283,6 +1382,12 @@ def main_app():
                 send_to_teams = st.button("📤 Send to Teams", use_container_width=True)
             with col3:
                 clear_results = st.button("🗑️ Clear Results", use_container_width=True)
+
+            retry_col1, retry_col2 = st.columns([2, 1])
+            with retry_col1:
+                auto_retry_failed = st.checkbox("Auto-retry failed apps after delay", value=True)
+            with retry_col2:
+                retry_delay_sec = st.number_input("Retry delay (sec)", min_value=5, max_value=300, value=30, step=5)
             
             if run_health_check:
                 with st.spinner("Running health checks..."):
@@ -1294,6 +1399,25 @@ def main_app():
                         results.append(result)
                         progress_bar.progress((idx + 1) / len(st.session_state.apps))
                     
+                    # Optional auto-retry for failed apps (useful after restart)
+                    failed_after_first = [r for r in results if r["Color"] == "red"]
+                    if auto_retry_failed and failed_after_first:
+                        st.info(f"Retrying {len(failed_after_first)} failed app(s) after {retry_delay_sec}s...")
+                        pytime.sleep(int(retry_delay_sec))
+
+                        retry_results = []
+                        for app in st.session_state.apps:
+                            if any(r["AppName"] == app["AppName"] and r["Color"] == "red" for r in results):
+                                retry_results.append(check_app_health(app))
+
+                        # Merge retry results with originals
+                        merged = []
+                        retry_map = {r["AppName"]: r for r in retry_results}
+                        for r in results:
+                            merged.append(retry_map.get(r["AppName"], r))
+
+                        results = merged
+
                     st.session_state.health_check_results = results
                     st.session_state.health_check_history.append({
                         "timestamp": utc_now(),
@@ -1394,8 +1518,42 @@ def main_app():
                         for result in hist_results:
                             st.write(f"- {result['AppName']}: {result['Result']}")
 
-    # --- Problems & Jira Tickets tab ---
+    # --- SSL & Vault POC tab ---
     with tabs[4]:
+        st.header("🔐 SSL & Vault Management (POC)")
+        st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
+
+        if st.session_state.ssl_certs_df is None or st.session_state.ssl_certs_df.empty:
+            st.warning("⚠️ No SSL inventory found. Add ssl_certificates.csv in app root.")
+        else:
+            st.subheader("📊 SSL Certificate Inventory")
+            st.dataframe(st.session_state.ssl_certs_df, use_container_width=True)
+
+        st.divider()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🔄 Renew SSL (SOP-Driven)")
+            renew_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_renew_domain")
+            if st.button("Start Renewal", use_container_width=True):
+                if renew_domain:
+                    for step in ssl_renew_steps(renew_domain):
+                        st.info(step)
+                else:
+                    st.error("Please enter a domain")
+
+        with col2:
+            st.subheader("🔒 Vault Certificate (SOP-Driven)")
+            vault_domain = st.text_input("Domain to Vault", placeholder="example.com", key="ssl_vault_domain")
+            if st.button("Start Vaulting", use_container_width=True):
+                if vault_domain:
+                    for step in ssl_vault_steps(vault_domain):
+                        st.info(step)
+                else:
+                    st.error("Please enter a domain")
+
+    # --- Problems & Jira Tickets tab ---
+    with tabs[5]:
         st.header("🎟️ Problem Tracking & Auto-Created Jira Tickets")
         
         st.markdown("""

@@ -7,3 +7,7 @@ AppName,URL,Expected
 124,http://payments-app/health,InvalidTextShouldFail
 543,http://orders-app/health,Orders healthy
 123,http://inventory-app/health,BadExpect : Mention it as epas in UI
+UnhealthyDemo,https://httpstat.us/500,
+LocalHealthy,http://18.237.102.97:8000/health/ok,OK
+LocalUnhealthy,http://18.237.102.97:8000/health/fail,
+EPAS_RestartDemo,http://18.237.102.97:8000/health/epas,OK
