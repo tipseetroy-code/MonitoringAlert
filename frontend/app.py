@@ -7,6 +7,8 @@ from api_client import start_agent, stop_agent, simulate_incident, fetch_inciden
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
 from datetime import datetime, timezone, time, timedelta
 import json
+import re
+import html
 import csv
 import os
 
@@ -367,15 +369,136 @@ def ssl_vault_steps(domain):
     ]
 
 
-def search_confluence(query):
-    """Search Confluence for relevant documentation"""
-    confluence_url = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
-    try:
-        # Mock Confluence search (in production, use Confluence API)
-        # For now, return reference to SOP page
-        return f"📘 Found in Confluence: {confluence_url}"
-    except:
+def _normalize_confluence_base_url(base_url):
+    if not base_url:
+        return "https://teammeenakshi.atlassian.net"
+    return base_url.rstrip("/")
+
+def _extract_confluence_page_id(value):
+    if not value:
         return None
+    raw = str(value).strip()
+    if raw.isdigit():
+        return raw
+
+    patterns = [
+        r"/pages/edit-v2/(\d+)",
+        r"/pages/(\d+)",
+        r"[?&]pageId=(\d+)",
+        r"/wiki/spaces/.+?/pages/(\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, raw)
+        if match:
+            return match.group(1)
+    return None
+
+def _confluence_page_url(base_url, page_id):
+    base = _normalize_confluence_base_url(base_url)
+    return f"{base}/wiki/pages/viewpage.action?pageId={page_id}"
+
+@st.cache_data(show_spinner=False)
+def get_confluence_app_pages():
+    """Return configured Confluence pages for app details."""
+    raw = os.getenv("CONFLUENCE_APP_PAGES", "").strip()
+    if raw:
+        try:
+            pages = json.loads(raw)
+            if isinstance(pages, list):
+                return pages
+        except Exception:
+            pass
+
+    # Default (App1 + App2 provided by user)
+    return [
+        {
+            "name": "app1",
+            "page_id": "2097154",
+            "tags": ["trading", "stock"]
+        },
+        {
+            "name": "app2",
+            "page_id": "2523137",
+            "tags": ["trading", "stocks", "portfolio"]
+        }
+    ]
+
+@st.cache_data(show_spinner=False)
+def fetch_confluence_page(page_id):
+    base_url = _normalize_confluence_base_url(os.getenv("CONFLUENCE_BASE_URL", "https://teammeenakshi.atlassian.net"))
+    user = os.getenv("CONFLUENCE_USER", "")
+    token = os.getenv("CONFLUENCE_API_TOKEN", "")
+
+    if not page_id:
+        return None
+    if not user or not token:
+        return None
+
+    url = f"{base_url}/wiki/rest/api/content/{page_id}?expand=body.storage,version,title,space"
+    try:
+        response = requests.get(url, auth=(user, token), timeout=15)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        return None
+    return None
+
+def _confluence_storage_to_text(storage_html):
+    if not storage_html:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", storage_html)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def _snippet_from_text(text, query, max_len=420):
+    if not text:
+        return ""
+    lower_text = text.lower()
+    idx = lower_text.find(query.lower()) if query else -1
+    if idx == -1:
+        return text[:max_len] + ("..." if len(text) > max_len else "")
+    start = max(0, idx - 120)
+    end = min(len(text), idx + max_len)
+    snippet = text[start:end]
+    return ("..." if start > 0 else "") + snippet + ("..." if end < len(text) else "")
+
+def search_confluence(query):
+    """Search Confluence app pages for relevant documentation."""
+    pages = get_confluence_app_pages()
+    if not pages:
+        return None
+
+    q = (query or "").lower().strip()
+    for page in pages:
+        name = str(page.get("name", "")).strip()
+        page_id = _extract_confluence_page_id(page.get("page_id") or page.get("url"))
+        tags = [str(t).lower().strip() for t in page.get("tags", []) if t]
+
+        if not page_id:
+            continue
+
+        page_data = fetch_confluence_page(page_id)
+        if not page_data:
+            continue
+
+        title = page_data.get("title", name or f"Page {page_id}")
+        storage_html = page_data.get("body", {}).get("storage", {}).get("value", "")
+        content_text = _confluence_storage_to_text(storage_html)
+
+        name_match = name and name.lower() in q
+        tag_match = any(tag and tag in q for tag in tags)
+        content_match = q and q in content_text.lower()
+
+        if name_match or tag_match or content_match:
+            return {
+                "title": title,
+                "page_id": page_id,
+                "url": _confluence_page_url(os.getenv("CONFLUENCE_BASE_URL", "https://teammeenakshi.atlassian.net"), page_id),
+                "snippet": _snippet_from_text(content_text, q)
+            }
+
+    return None
 
 def web_search(query):
     """Perform actual Google search and return top results"""
@@ -407,8 +530,13 @@ def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     
     # Step 1: Try Confluence first
     confluence_result = search_confluence(user_query)
-    if confluence_result and "Found in Confluence" in confluence_result:
-        return confluence_result
+    if confluence_result:
+        return (
+            f"📘 **Confluence App Details Found**\n\n"
+            f"**Title:** {confluence_result.get('title')}\n"
+            f"**Link:** {confluence_result.get('url')}\n\n"
+            f"**Summary:** {confluence_result.get('snippet')}"
+        )
     
     # Step 2: Try web search - now performs real Google search
     web_result = web_search(user_query)
@@ -469,9 +597,9 @@ Respond helpfully, provide actionable steps, and escalate if needed.
                 if hasattr(part, 'text'):
                     llm_response += part.text
         
-        return f"{web_response}**AI Response:**\n{llm_response.strip()}" if llm_response else f"{web_response}AI could not generate a response."
+            return f"{web_result}\n\n**AI Response:**\n{llm_response.strip()}" if llm_response else f"{web_result}\n\nAI could not generate a response."
     except Exception as e:
-        return f"{web_response}AI error: {str(e)}"
+        return f"{web_result}\n\nAI error: {str(e)}"
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 
@@ -498,6 +626,16 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
     # Handle casual queries
     if "how are you" in query.lower() or "how do you do" in query.lower():
         return "I'm doing well, thank you! As an AI chatbot, I'm always ready to help with system monitoring and troubleshooting. What can I assist you with today?"
+
+    # -------- CONFLUENCE APP DETAILS --------
+    confluence_match = search_confluence(query)
+    if confluence_match:
+        return (
+            f"📘 **Confluence App Details**\n\n"
+            f"**Title:** {confluence_match.get('title')}\n"
+            f"**Link:** {confluence_match.get('url')}\n\n"
+            f"**Summary:** {confluence_match.get('snippet')}"
+        )
     
 
     # -------- CERTIFICATES --------
