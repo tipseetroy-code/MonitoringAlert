@@ -1,13 +1,11 @@
 AppName,URL,Expected
-111,http://111-app/health,ReturnCode=10-B BPS1 CME-200
-121,http://was-app/health,All services are ready
-132,http://hlt-app/health,WRONG_EXPECTED_STRING
-9,http://os-node/health,OS is alive
-187,http://crm-app/health,CRM service running
-124,http://payments-app/health,InvalidTextShouldFail
-543,http://orders-app/health,Orders healthy
-123,http://inventory-app/health,BadExpect : Mention it as epas in UI
-UnhealthyDemo,https://httpstat.us/500,
-LocalHealthy,http://18.237.102.97:8000/health/ok,OK
-LocalUnhealthy,http://18.237.102.97:8000/health/fail,
-EPAS_RestartDemo,http://18.237.102.97:8000/health/epas,OK
+AuthService,https://httpbin.org/status/200,
+PaymentAPI,https://httpbin.org/json,
+UserService,https://httpbin.org/get,
+OrderService,https://httpstat.us/200,OK
+InventoryAPI,https://httpbin.org/uuid,
+FailingService,https://httpstat.us/503,
+SlowService,https://httpbin.org/delay/2,
+EPAS_Healthy,http://18.237.102.97:8000/health/ok,OK
+EPAS_Unhealthy,http://18.237.102.97:8000/health/fail,
+EPAS_Restart,http://18.237.102.97:8000/health/epas,OK
