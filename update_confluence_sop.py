@@ -11,7 +11,7 @@ from base64 import b64encode
 # Confluence Configuration
 CONFLUENCE_URL = "https://teammeenakshi.atlassian.net"
 CONFLUENCE_SPACE = "AgAH"  # Extract from URL path
-CONFLUENCE_PAGE_ID = os.getenv("CONFLUENCE_PAGE_ID", "AgAH")  # Update with actual page ID
+CONFLUENCE_PAGE_ID = os.getenv("CONFLUENCE_PAGE_ID", "458754")  # Update with actual page ID
 CONFLUENCE_USER = "porselvi.baskar@in.ey.com"
 CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN", "your_token_here")
 
