@@ -929,7 +929,7 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check (EPAS)", "SSL & Vault POC", "Problems & Jira"])
+    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check", "SSL & Vault POC", "Problems & Jira"])
 
     # --- Self Healing tab (enhanced) ---
     with tabs[0]:
@@ -1357,9 +1357,9 @@ def main_app():
             # Refresh to show new messages
             st.rerun()
 
-    # --- Health Check (EPAS) tab ---
+    # --- Health Check tab ---
     with tabs[3]:
-        st.header("🏥 Health Check & EPAS Monitoring")
+        st.header("🏥 Health Check Monitoring")
         
         # Configuration Section
         with st.expander("⚙️ Configuration", expanded=False):
