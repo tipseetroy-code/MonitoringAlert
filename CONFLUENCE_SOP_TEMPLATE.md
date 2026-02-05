@@ -1,454 +1,401 @@
-# SSL Certificate & Vault Management - Standard Operating Procedures
+# Agentic Self‑Healing Playbook (EC2 + Docker + Outlook Alerts)
 
-## 1. SSL Certificate Renewal SOP
+**By Porselvi Baskar**
 
-### Overview
-This SOP describes the process for renewing SSL/TLS certificates to prevent service interruption from expired certificates.
-
-### Prerequisites
-- Access to domain registrar/hosting provider
-- Access to certificate authority account (Let's Encrypt, DigiCert, etc.)
-- SSH access to production servers
-- Administrator privileges on web servers (nginx/apache)
-
-### Step-by-Step Process
-
-#### Step 1: Check Current Certificate Status
-```bash
-# Check certificate expiry
-openssl x509 -in /path/to/cert.pem -noout -dates
-
-# Or via domain
-echo | openssl s_client -servername example.com -connect example.com:443 2>/dev/null | openssl x509 -noout -dates
-```
-
-**Expected Output:**
-- `notBefore=Jan 15 12:00:00 2025 GMT`
-- `notAfter=Jan 15 12:00:00 2026 GMT`
-
-#### Step 2: Generate Certificate Signing Request (CSR)
-```bash
-# Generate private key and CSR
-openssl req -new -newkey rsa:2048 -nodes -keyout domain.key -out domain.csr \
-  -subj "/C=US/ST=State/L=City/O=Company/CN=example.com"
-
-# View CSR
-cat domain.csr
-```
-
-#### Step 3: Request Certificate from CA
-**For Let's Encrypt (Certbot):**
-```bash
-sudo certbot certonly --standalone -d example.com -d www.example.com
-```
-
-**For Commercial CAs:**
-1. Log in to CA account
-2. Upload CSR from Step 2
-3. Complete domain validation (DNS/Email)
-4. Download certificate
-
-#### Step 4: Install Certificate on Server
-
-**For nginx:**
-```bash
-# Copy certificate and key to nginx config directory
-sudo cp /path/to/new/cert.crt /etc/nginx/ssl/example.com.crt
-sudo cp /path/to/new/private.key /etc/nginx/ssl/example.com.key
-
-# Set correct permissions
-sudo chmod 600 /etc/nginx/ssl/example.com.key
-sudo chown nginx:nginx /etc/nginx/ssl/example.com.*
-
-# Update nginx config
-```
-**For Apache:**
-```bash
-# Copy certificate and key
-sudo cp /path/to/new/cert.crt /etc/apache2/ssl/example.com.crt
-sudo cp /path/to/new/private.key /etc/apache2/ssl/example.com.key
-
-# Update Apache config
-
-#### Step 5: Verify Configuration
-```bash
-# For nginx
-sudo nginx -t
-
-# For Apache
-sudo apachectl configtest
-```
-
-**Expected Output:** `syntax is ok` or `Syntax OK`
-
-#### Step 6: Restart Web Server
-
-**For nginx:**
-```bash
-sudo systemctl restart nginx
-```
-
-**For Apache:**
-```bash
-sudo systemctl restart apache2
-```
-
-# Test SSL connection
-openssl s_client -connect example.com:443 -servername example.com
-
-# https://www.ssllabs.com/ssltest/analyze.html?d=example.com
-```
-- Certificate chain displays correctly
-
-#### Step 8: Update DNS/CAA Records (if required)
-```bash
-# Verify CAA records allow your CA
-dig example.com CAA
-
-# Expected output shows your CA is authorized
-# e.g., IN CAA 0 issue "letsencrypt.org"
-```
-
-#### Step 9: Notify Team
-- Send notification to team@example.com
-- Subject: "SSL Certificate Renewed - example.com"
-- Include: New expiry date, validation results
-
-#### Step 10: Update Monitoring/Alerts
-```bash
-# Update monitoring configuration
-# Update certificate tracking in your SSL management dashboard
-# Update renewal reminders (typically 30 days before expiry)
-```
-
-### Troubleshooting
-
-| Issue | Resolution |
-|-------|-----------|
-| CSR validation fails | Verify domain ownership, check registrar settings |
-| Certificate installation error | Verify file permissions, check config syntax |
-| SSL connection fails | Ensure firewall allows 443, check web server logs |
-| Mixed content warnings | Update http→https redirects in config |
-| Certificate chain incomplete | Ensure intermediate certificates are included |
-
-### Rollback Plan
-```bash
-# If new certificate causes issues, revert to old certificate
-sudo cp /path/to/old/cert.crt /etc/nginx/ssl/example.com.crt
-sudo cp /path/to/old/private.key /etc/nginx/ssl/example.com.key
-sudo systemctl restart nginx
-```
-
-### Timeline
-- **T-60 days:** Identify certificates expiring soon
-- **T-30 days:** Begin renewal process
-- **T-7 days:** Test renewal in staging environment
-- **T-1 day:** Prepare production renewal
-- **T-0:** Execute renewal during maintenance window
+**Owner:** SRE/Platform  
+**Audience:** On‑call engineers, service owners, automation agents  
+**Last Reviewed:** 2026-02-05  
+**Change Log:** Update this section whenever steps or guardrails change.
 
 ---
 
-## 2. Certificate Vaulting SOP (HashiCorp Vault)
+## 1. Purpose (human)
+This page defines how our automation Agent heals services after deployments and during incidents.
 
-### Overview
-This SOP describes how to securely store SSL certificates in HashiCorp Vault to centralize certificate management, enforce access control, and maintain audit trails.
-
-### Prerequisites
-- HashiCorp Vault instance running and accessible
-- Vault CLI installed
-- Vault token with write permissions to `secret/ssl/*` path
-- SSL certificate files (cert, private key, chain)
-
-### Step-by-Step Process
-
-#### Step 1: Authenticate to Vault
-```bash
-# Authenticate with token
-vault login s.your_token_here
-
-# Or with username/password
-vault login -method=userpass username=your_username
-```
-
-**Verify:**
-```bash
-vault token lookup
-```
-
-#### Step 2: Create SSL Secret Path
-```bash
-# Enable secret engine (if not already enabled)
-vault secrets enable -version=2 -path=secret kv
-
-# Verify path exists
-vault secrets list
-```
-
-#### Step 3: Retrieve SSL Certificate Files
-```bash
-# Locate existing certificates
-ls -la /etc/nginx/ssl/example.com.*
-
-# Or generate new CSR and get certificates (see SSL Renewal SOP)
-```
-
-#### Step 4: Prepare Certificate Data
-```bash
-# Read certificate files
-cat /etc/nginx/ssl/example.com.crt
-cat /etc/nginx/ssl/example.com.key
-cat /etc/nginx/ssl/example.com-chain.crt  # Intermediate certificates
-```
-
-#### Step 5: Store Certificate in Vault
-
-**Using Vault CLI:**
-```bash
-# Store all certificate components
-vault kv put secret/ssl/example.com \
-  certificate=@/etc/nginx/ssl/example.com.crt \
-  private_key=@/etc/nginx/ssl/example.com.key \
-  chain=@/etc/nginx/ssl/example.com-chain.crt \
-  expiry="2027-01-15" \
-  domain="example.com" \
-  issuer="Let's Encrypt" \
-  stored_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-```
-
-**Using Raw Text (for inline data):**
-```bash
-vault kv put secret/ssl/example.com \
-  certificate="$(cat /etc/nginx/ssl/example.com.crt)" \
-  private_key="$(cat /etc/nginx/ssl/example.com.key)" \
-  chain="$(cat /etc/nginx/ssl/example.com-chain.crt)"
-```
-
-#### Step 6: Verify Certificate Storage
-```bash
-# List all certificates in vault
-vault kv list secret/ssl/
-
-# Read specific certificate
-vault kv get secret/ssl/example.com
-
-# Read specific field
-vault kv get -field=certificate secret/ssl/example.com
-```
-
-#### Step 7: Set Access Control Policies
-
-**Create policy file (`ssl-policy.hcl`):**
-```hcl
-path "secret/data/ssl/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-
-path "secret/metadata/ssl/*" {
-  capabilities = ["list", "read"]
-}
-```
-
-**Apply policy:**
-```bash
-vault policy write ssl-team ssl-policy.hcl
-
-# Assign policy to user/role
-vault write auth/userpass/users/devops password="password" policies="ssl-team"
-```
-
-#### Step 8: Retrieve Certificate from Vault (For Application Use)
-
-**For nginx startup script:**
-```bash
-#!/bin/bash
-
-# Login to Vault
-export VAULT_TOKEN=$(vault login -method=userpass username=devops password=password -format=json | jq -r '.auth.client_token')
-
-# Retrieve certificate
-vault kv get -field=certificate secret/ssl/example.com > /etc/nginx/ssl/example.com.crt
-vault kv get -field=private_key secret/ssl/example.com > /etc/nginx/ssl/example.com.key
-vault kv get -field=chain secret/ssl/example.com > /etc/nginx/ssl/example.com-chain.crt
-
-# Set permissions
-chmod 600 /etc/nginx/ssl/example.com.key
-chown nginx:nginx /etc/nginx/ssl/example.com.*
-
-# Restart nginx
-systemctl restart nginx
-```
-
-#### Step 9: Enable Audit Logging
-
-**Check audit status:**
-```bash
-vault audit list
-```
-
-**Enable file audit:**
-```bash
-vault audit enable file file_path=/var/log/vault-audit.log
-```
-
-**Review audit logs:**
-```bash
-# View who accessed certificates
-tail -f /var/log/vault-audit.log | jq .
-
-# Filter for SSL access
-grep "secret/ssl" /var/log/vault-audit.log
-```
-
-#### Step 10: Configure Certificate Rotation
-
-**Create renewal schedule:**
-```bash
-# Set Vault reminder for renewal
-vault kv put secret/ssl/example.com renewal_date="2026-12-15"
-
-# Create cron job for automatic checks
-# 0 0 * * * /usr/local/bin/check-cert-expiry.sh
-```
-
-#### Step 11: Update Application Configuration
-
-**Update nginx/apache config:**
-```bash
-# Add dynamic certificate loading from Vault
-# Or use Vault Agent to automatically inject certificates
-
-# Example with Vault Agent (vault-agent.hcl)
-vault_agent {
-  listener "unix" {
-    address = "/tmp/vault.sock"
-  }
-
-  listener "tcp" {
-    address = "127.0.0.1:8100"
-  }
-
-  cache {
-    use_auto_auth_token = true
-  }
-}
-
-auto_auth {
-  method "approle" {
-    mount_path = "auth/approle"
-    config = {
-      role_id_file_path = "/var/run/vault/.role-id"
-      secret_id_file_path = "/var/run/vault/.secret-id"
-    }
-  }
-}
-
-template {
-  source = "/etc/vault/templates/nginx.tpl"
-  destination = "/etc/nginx/ssl/certs.conf"
-  command = "systemctl restart nginx"
-}
-```
-
-#### Step 12: Verify End-to-End Flow
-
-**Test complete flow:**
-```bash
-# 1. Authenticate
-vault login
-
-# 2. Retrieve certificate
-cert=$(vault kv get -field=certificate secret/ssl/example.com)
-
-# 3. Verify certificate validity
-echo "$cert" | openssl x509 -text -noout | grep "Not After"
-
-# 4. Confirm expiry is correct
-echo "$cert" | openssl x509 -noout -dates
-```
-
-### Troubleshooting
-
-| Issue | Resolution |
-|-------|-----------|
-| Authentication fails | Verify token/credentials, check Vault status |
-| Permission denied | Verify policy assignment, check ACLs |
-| Certificate format error | Ensure PEM format, check line endings |
-| Retrieval fails | Verify path exists, check network connectivity |
-| Rotation fails | Verify cron job, check logs, test manually |
-
-### Backup & Disaster Recovery
-
-**Backup Vault data:**
-```bash
-# Enable snapshot backup
-vault operator raft snapshot save /backups/vault-snapshot.snap
-
-# List snapshots
-ls -lah /backups/
-```
-
-**Restore from backup:**
-```bash
-# Stop Vault
-systemctl stop vault
-
-# Restore snapshot
-vault operator raft snapshot restore /backups/vault-snapshot.snap
-
-# Start Vault
-systemctl start vault
-```
-
-### Security Best Practices
-
-1. **Access Control:** Limit Vault access to authorized personnel only
-2. **Audit:** Enable and regularly review audit logs
-3. **Encryption:** Ensure Vault is sealed when not in use
-4. **Rotation:** Rotate Vault tokens regularly
-5. **Backup:** Maintain secure backups of Vault data
-6. **Network:** Restrict Vault access to private network/VPN
-
-### Performance Metrics
-
-- **Storage Time:** < 2 seconds per certificate
-- **Retrieval Time:** < 1 second per certificate
-- **Audit Log Growth:** ~500 KB per 1000 operations
+It describes:
+- What the Agent is allowed to do (cleanup, restart, minimal deploy tasks, health checks)
+- Where the Agent is allowed to touch (explicit paths, explicit services)
+- How the Agent should behave if information is missing (perform a safe, targeted web search and continue)
 
 ---
 
-## 3. Quick Reference
+## 2. Golden Rules (Agent must obey)
+1. **Least privilege:** Only touch declared paths, services, and commands in this page.
+2. **No surprises:** Never create or delete outside the listed paths; refuse if ambiguous.
+3. **Dry‑run mindset:** Prefer a lightweight read/check before a write/delete.
+4. **Stop on uncertainty:** If unsure, stop and escalate with current findings.
+5. **Log everything:** Record exactly what you did (command, target path, counts, status).
+6. **Post‑deploy self‑heal:** After a successful deploy, immediately run the job's self‑heal block.
 
-### Common Commands
+---
 
-```bash
-# SSL Renewal
-sudo certbot certonly --standalone -d example.com
+## 3. Global Safety & Scope (for all jobs)
 
-# Check certificate
-openssl x509 -in cert.pem -text -noout
+### 3.1 Allowed commands (Agent must reject anything else)
+- `/usr/bin/df`
+- `/usr/bin/find`
+- `/usr/bin/rm`
+- `/usr/bin/docker`
+- `/usr/bin/systemctl`
+- `/usr/bin/curl`
 
-# Vault Login
-vault login s.token_here
+### 3.2 General cleanup policy
+- Delete only files (no directories) matching allowed patterns, and only if older than the configured RetentionDays.
+- Always run `df -h` before and after cleanup.
+- Never expand a relative path; require absolute paths.
 
-# Store Certificate
-vault kv put secret/ssl/domain certificate=@cert.pem private_key=@key.pem
+### 3.3 Restart policy
+- Only restart the listed service for a job (Docker service name or systemd unit).
+- One restart attempt. If it fails, stop and escalate.
 
-# Retrieve Certificate
-vault kv get secret/ssl/domain
+### 3.4 Health verification policy
+- Use the exact commands listed for the job (e.g., `curl -fsS http://localhost:PORT/healthz`).
+- Consider the job healthy if all listed verifications succeed.
 
-# Verify SSL
-openssl s_client -connect example.com:443
+### 3.5 Notifications
+After each run, send an Outlook email (via our Power Automate flow) with:
+- Job name, action taken, status (healed/failed).
+- `df -h` before/after deltas, number of files deleted per path.
+- Restart/health results (first/last lines).
+- Any warnings and the relevant log snippets.
+
+---
+
+## 4. Job Catalog (human‑readable; Agent‑parsable)
+
+Add/modify jobs here. Each job block below contains a human explanation plus a machine‑hint section in a JSON code block titled `AGENT‑STEPS`.
+
+The Agent must parse the JSON to plan the execution. If a field is absent, follow the Web Search Fallback policy (§6).
+
+### 4.1 ETL‑DAILY (Post‑deploy disk hygiene + Docker restart)
+
+**What this does (human):**
+- Cleans ETL temp/log clutter in two specific directories.
+- Restarts the Docker service `etl-svc`.
+- Verifies with a local health endpoint and a quick log peek.
+
+**Notes to humans:**
+- Review retention (3 days) is safe for current workload; adjust if data patterns change.
+
+**AGENT‑STEPS (strict JSON):**
+```json
+{
+  "job": "ETL-DAILY",
+  "reason": "Post-deployment self-heal and disk hygiene",
+  "cleanup": {
+    "paths": ["/var/tmp/etl", "/data/etl/tmp"],
+    "patterns": ["*.tmp", "*.log", "ibtmp*"],
+    "retention_days": 3
+  },
+  "restart": { "kind": "docker", "name": "etl-svc" },
+  "verify": {
+    "commands": [
+      "df -h",
+      "curl -fsS http://localhost:9000/healthz"
+    ]
+  }
+}
 ```
 
-### Contact & Escalation
+### 4.2 WEBAPI‑PROD (Temp cleanup + systemd restart + HTTP health)
 
-- **Certificate Issues:** contact devops@example.com
-- **Vault Issues:** contact vault-team@example.com
-- **Emergency:** PagerDuty escalation
+**What this does (human):**
+- Cleans temporary files for the web API.
+- Restarts the systemd service `webapi`.
+- Checks `/health` and recent systemd logs.
 
-### Document History
+**AGENT‑STEPS (strict JSON):**
+```json
+{
+  "job": "WEBAPI-PROD",
+  "reason": "Post-deploy self-heal and temp log compaction",
+  "cleanup": {
+    "paths": ["/var/tmp/webapi"],
+    "patterns": ["*.tmp", "*.old"],
+    "retention_days": 2
+  },
+  "restart": { "kind": "systemd", "name": "webapi" },
+  "verify": {
+    "commands": [
+      "curl -fsS http://localhost:8080/health",
+      "journalctl -u webapi -n 80 --no-pager | tail -n 40"
+    ]
+  }
+}
+```
+
+### 4.nn (Template for new jobs)
+
+**What this does (human):**
+Write a 2–3 line summary for humans.
+
+**AGENT‑STEPS (strict JSON):**
+```json
+{
+  "job": "___",
+  "reason": "___",
+  "cleanup": {
+    "paths": ["/absolute/path/one", "/absolute/path/two"],
+    "patterns": ["*.tmp", "*.log"],
+    "retention_days": 3
+  },
+  "restart": { "kind": "docker|systemd|k8s", "name": "service-or-deployment" },
+  "verify": {
+    "commands": [
+      "curl -fsS http://localhost:PORT/healthz"
+    ]
+  }
+}
+```
+
+---
+
+## 5. Post‑Deployment Auto‑Heal (when to run)
+
+**Trigger:** Immediately after a successful deployment of a job listed above.
+
+**Sequence (Agent):**
+1. Read this page → locate the job's `AGENT‑STEPS` block.
+2. Validate paths are absolute and within the job's list.
+3. Run `df -h` (baseline) → perform cleanup (retention enforced) → run `df -h` again.
+4. Restart the declared service (Docker/systemd/k8s exactly as specified).
+5. Run all verification commands.
+6. Send notification email (success/failure + full summary).
+7. Append a one‑line action summary to Incident Notes (§8).
+
+---
+
+## 6. Web Search Fallback (only if something is missing)
+
+### When to use:
+- A field in `AGENT‑STEPS` is missing (e.g., `verify.commands` not provided).
+- A command consistently fails due to a known change (e.g., health endpoint moved).
+- You need the current doc for a standard command usage (e.g., `journalctl` flags).
+
+### How to search (Agent):
+1. Construct a minimal, targeted query that includes the tool and intent, e.g.:
+   - "systemctl restart service meaning"
+   - "docker restart <name> exit codes"
+   - "journalctl -u webapi options no-pager"
+   - "curl health check examples -k -f -s"
+
+2. Prefer official or high‑reputation results.
+
+3. Confirm at least two independent sources if it changes semantics or safety.
+
+4. Apply the Golden Rules (§2) and Global Safety (§3) before executing.
+
+5. Record the URL titles and what was learned in the notification email.
+
+6. If a search suggests touching paths/services not declared for the job, do not proceed—escalate instead.
+
+---
+
+## 7. Failure Handling & Escalation
+
+- Mark the run **FAILED** if any restart/verification step fails.
+- Include the failing command, exit code, and the last ~80 lines of relevant logs in the email.
+- Do not attempt repeated restarts or extra cleanup beyond the job's declared scope.
+- Escalate to on‑call with your full summary.
+
+---
+
+## 8. Incident Notes (append one‑liner per run)
+
+The Agent should append a single line per run with timestamp, job, action, result, file counts, and key deltas.
+
+**Format:**
+```
+[YYYY-MM-DD HH:MM:SS] JOB=ETL-DAILY | CLEAN=/var/tmp/etl:12,/data/etl/tmp:7 | RESTART=docker:etl-svc | HEALTH=OK | DISK=68%→54% | LINKS=<optional references>
+```
+
+---
+
+## 9. Quick Examples (for humans)
+
+### Example 1 – ETL‑DAILY after deploy
+- Expect 10–60 files deleted across `/var/tmp/etl` and `/data/etl/tmp` (varies by day).
+- A single `docker restart etl-svc`.
+- Health at `http://localhost:9000/healthz` should return HTTP 200 in <2 seconds.
+
+### Example 2 – WEBAPI‑PROD temp churn
+- Expect cleanups only under `/var/tmp/webapi`; never touch `/var/log` or app data.
+- `systemctl restart webapi` once; verify `curl` to `/health` returns 200.
+- Tail recent journal lines for quick sanity.
+
+---
+
+## 10. Appendix — Rationale (human)
+
+- Cleanup plus a controlled restart often removes transient pressure (temp/log bloat).
+- Strict scoping and retention make the process safe and repeatable.
+- Web Search Fallback allows the Agent to remain effective when runbook details lag real‑world changes—without overruling scope boundaries.
+
+### To add a new job
+1. Duplicate the Job block template in §4.
+2. Fill in paths, patterns, retention, restart, verify.
+3. Communicate the change to on‑call and service owners.
+
+---
+
+## 11. Health Check Monitoring SOP
+
+### Overview
+This section describes the automated health check monitoring system that validates service availability, implements retry logic for transient failures, and maintains comprehensive logs of all health check operations.
+
+### Prerequisites
+- Access to Monitoring Dashboard (Streamlit UI)
+- Health check endpoints configured in `apps.csv`
+- Health server running on port 8000 (EC2: http://18.237.102.97:8000)
+
+### Health Check Tab Features
+
+#### 11.1 Available Services
+The monitoring system tracks multiple services including:
+- **AuthService** - httpbin.org/status/200 (always healthy)
+- **PaymentAPI** - httpbin.org/status/500 (always unhealthy)
+- **UserService** - httpstat.us/random/200,500 (random)
+- **FlakyService** - EC2 /health/flaky (fails first, succeeds on retry)
+- **EPAS_Healthy** - EC2 /health/epas (toggleable)
+
+#### 11.2 Health Check Logic
+Services are classified as:
+- **Healthy** (✅): URL is reachable (HTTP 200-299 status)
+- **Unhealthy** (❌): Connection fails or returns error status (4xx, 5xx)
+
+#### 11.3 Retry Mechanism
+**Configuration:**
+- Enable "Automatically retry failed apps" checkbox
+- Set retry delay (default: 2 seconds)
+
+**Behavior:**
+1. Run initial health check on all apps
+2. For any unhealthy apps:
+   - Wait for configured delay
+   - Automatically retry once
+   - Update status based on retry result
+
+#### 11.4 Demo: Flaky Service Endpoint
+**Purpose:** Demonstrates retry behavior for transient failures
+
+**Endpoint:** `http://18.237.102.97:8000/health/flaky`
+
+**Behavior:**
+- First attempt: Returns HTTP 500 (FAIL)
+- Second attempt: Returns HTTP 200 (SUCCESS)
+- Subsequent attempts: Returns HTTP 200
+
+**Test Steps:**
+1. Navigate to Health Check tab
+2. Enable "Automatically retry failed apps"
+3. Set retry delay to 2 seconds
+4. Click "Run Health Check"
+5. Observe FlakyService:
+   - Initial check: ❌ Unhealthy
+   - After retry: ✅ Healthy
+
+**Reset:** Restart health_server.py to reset flaky state counter
+
+#### 11.5 Health Check Logs
+
+**Purpose:** Comprehensive audit trail of all health check operations
+
+**Log Events:**
+- `RUN_START`: Health check run initiated
+- `CHECK_OK`: URL returned success status
+- `CHECK_FAIL`: URL failed or unreachable
+- `RETRY_START`: Retry initiated for failed app
+- `RETRY_OK`: Retry succeeded
+- `RETRY_FAIL`: Retry still failed
+
+**Log Format:**
+```
+[2026-02-05 14:32:15] RUN_START | Running health check for 7 apps
+[2026-02-05 14:32:16] CHECK_OK | AuthService: http://httpbin.org/status/200
+[2026-02-05 14:32:16] CHECK_FAIL | FlakyService: http://18.237.102.97:8000/health/flaky
+[2026-02-05 14:32:18] RETRY_START | FlakyService: Retrying after 2s delay
+[2026-02-05 14:32:18] RETRY_OK | FlakyService: Success on retry
+```
+
+**Viewing Logs:**
+- Last 50 log entries displayed in Health Check tab
+- Most recent entries at the top
+- Persistent across sessions (stored in session state)
+
+#### 11.6 Test Endpoints Reference
+
+| Endpoint | URL | Expected Behavior |
+|----------|-----|-------------------|
+| Always OK | http://18.237.102.97:8000/health/ok | Always returns 200 |
+| Always Fail | http://18.237.102.97:8000/health/fail | Always returns 500 |
+| Flaky | http://18.237.102.97:8000/health/flaky | Fails once, then succeeds |
+| EPAS | http://18.237.102.97:8000/health/epas | Toggleable via restart endpoint |
+| EPAS Toggle | http://18.237.102.97:8000/epas/restart | Toggles EPAS healthy/unhealthy state |
+
+#### 11.7 Troubleshooting
+
+| Issue | Resolution |
+|-------|-----------|
+| All apps show unhealthy | Check network connectivity, verify health server running |
+| Retry not triggering | Ensure "Automatically retry failed apps" is enabled |
+| Logs not showing | Refresh page to reinitialize session state |
+| Flaky endpoint always fails | Restart health_server.py to reset counter |
+
+#### 11.8 Operations Runbook
+
+**Daily Operations:**
+1. Navigate to Health Check tab
+2. Review current health status of all services
+3. Enable auto-retry for production checks
+4. Review logs for patterns or recurring failures
+
+**Incident Response:**
+1. Check Health Check Logs for failure timeline
+2. Note which services failed and when
+3. Review retry outcomes to identify transient vs persistent issues
+4. Escalate persistent failures to service owners
+
+**Maintenance:**
+1. Update `apps.csv` when adding/removing services
+2. Adjust retry delay based on service characteristics
+3. Monitor log growth and consider archival strategy
+
+#### 11.9 Configuration Files
+
+**apps.csv format:**
+```csv
+app_name,environment,health_check_url
+AuthService,prod,http://httpbin.org/status/200
+FlakyService,test,http://18.237.102.97:8000/health/flaky
+```
+
+**Session State Variables:**
+- `health_check_logs`: List of all log entries
+- `health_check_results`: Current status of all apps
+- `last_check_time`: Timestamp of last health check run
+
+#### 11.10 Integration with Self-Healing
+
+**Post-Deployment Flow:**
+1. Deployment completes successfully
+2. Automated health check runs with retry enabled
+3. Failed services trigger self-heal workflow
+4. Health check logs provide audit trail for compliance
+
+**Escalation Criteria:**
+- Service fails both initial check and retry → Trigger alert
+- Multiple services fail simultaneously → Possible infrastructure issue
+- Flaky pattern detected → Review service stability
+
+---
+
+## Document History
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
-| 1.0 | 2026-02-03 | Initial creation | DevOps Team |
-| 1.1 | TBD | Updates | TBD |
+| 1.0 | 2026-02-03 | Initial creation | Porselvi Baskar |
+| 1.1 | 2026-02-05 | Added Health Check Monitoring SOP (§11) | DevOps Team |
+
+---
+
+**End of page**
