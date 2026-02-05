@@ -944,33 +944,6 @@ def main_app():
             agent_running = True  # Assume running for demo
         st.subheader(f"Agent Status: {'🟢 Running (24/7)' if agent_running else '🔴 Stopped (Backend unavailable)'}")
 
-        st.subheader("SSL Certificate Management")
-        st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
-        ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com")
-        ssl_action = st.selectbox("Action", ["Renew Certificate", "Vault Certificate", "Check Status"])
-        
-        if st.button("Execute SSL Action"):
-            if ssl_domain:
-                with st.spinner("Processing..."):
-                    if ssl_action == "Renew Certificate":
-                        # Simulate renewal
-                        st.success(
-                            f"SSL certificate for '{ssl_domain}' renewed successfully. "
-                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
-                        )
-                        # Could call backend API here if available
-                    elif ssl_action == "Vault Certificate":
-                        st.success(
-                            f"Certificate for '{ssl_domain}' vaulted securely. "
-                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
-                        )
-                    elif ssl_action == "Check Status":
-                        # Mock status
-                        status = "Valid" if random.choice([True, False]) else "Expired"
-                        st.info(f"Certificate for '{ssl_domain}' is {status}.")
-            else:
-                st.error("Please enter a domain.")
-
         st.subheader("EPAS Live URL")
         epas_url = st.text_input(
             "EPAS Health URL",
@@ -1569,6 +1542,29 @@ def main_app():
     with tabs[4]:
         st.header("🔐 SSL & Vault Management (POC)")
         st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
+
+        st.subheader("⚡ Quick SSL Actions")
+        ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com", key="ssl_quick_domain")
+        ssl_action = st.selectbox("Action", ["Renew Certificate", "Vault Certificate", "Check Status"], key="ssl_quick_action")
+
+        if st.button("Execute SSL Action", key="ssl_quick_execute"):
+            if ssl_domain:
+                with st.spinner("Processing..."):
+                    if ssl_action == "Renew Certificate":
+                        st.success(
+                            f"SSL certificate for '{ssl_domain}' renewed successfully. "
+                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+                        )
+                    elif ssl_action == "Vault Certificate":
+                        st.success(
+                            f"Certificate for '{ssl_domain}' vaulted securely. "
+                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
+                        )
+                    elif ssl_action == "Check Status":
+                        status = "Valid" if random.choice([True, False]) else "Expired"
+                        st.info(f"Certificate for '{ssl_domain}' is {status}.")
+            else:
+                st.error("Please enter a domain.")
 
         if st.session_state.ssl_certs_df is None or st.session_state.ssl_certs_df.empty:
             st.warning("⚠️ No SSL inventory found. Add ssl_certificates.csv in app root.")
