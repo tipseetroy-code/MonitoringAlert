@@ -818,6 +818,8 @@ if "health_check_results" not in st.session_state:
     st.session_state.health_check_results = []
 if "health_check_history" not in st.session_state:
     st.session_state.health_check_history = []
+if "health_check_logs" not in st.session_state:
+    st.session_state.health_check_logs = []
 
 # Initialize problem tracking & Jira state
 if "tracked_problems" not in st.session_state:
@@ -1380,24 +1382,38 @@ def main_app():
             
             if run_health_check:
                 with st.spinner("Running health checks..."):
+                    st.session_state.health_check_logs.append(f"{utc_now()} | RUN_START | total_apps={len(st.session_state.apps)}")
                     results = []
                     progress_bar = st.progress(0)
                     
                     for idx, app in enumerate(st.session_state.apps):
                         result = check_app_health(app)
                         results.append(result)
+                        status_flag = "OK" if result["Color"] == "green" else "FAIL"
+                        st.session_state.health_check_logs.append(
+                            f"{utc_now()} | CHECK_{status_flag} | app={result['AppName']} | url={result['URL']} | status={result['Status']}"
+                        )
                         progress_bar.progress((idx + 1) / len(st.session_state.apps))
                     
                     # Optional auto-retry for failed apps (useful after restart)
                     failed_after_first = [r for r in results if r["Color"] == "red"]
                     if auto_retry_failed and failed_after_first:
                         st.info(f"Retrying {len(failed_after_first)} failed app(s) after {retry_delay_sec}s...")
+                        st.session_state.health_check_logs.append(
+                            f"{utc_now()} | RETRY_START | failed_apps={len(failed_after_first)} | delay_sec={int(retry_delay_sec)}"
+                        )
                         pytime.sleep(int(retry_delay_sec))
 
                         retry_results = []
                         for app in st.session_state.apps:
                             if any(r["AppName"] == app["AppName"] and r["Color"] == "red" for r in results):
                                 retry_results.append(check_app_health(app))
+
+                        for retry_result in retry_results:
+                            status_flag = "OK" if retry_result["Color"] == "green" else "FAIL"
+                            st.session_state.health_check_logs.append(
+                                f"{utc_now()} | RETRY_{status_flag} | app={retry_result['AppName']} | url={retry_result['URL']} | status={retry_result['Status']}"
+                            )
 
                         # Merge retry results with originals
                         merged = []
@@ -1462,6 +1478,14 @@ def main_app():
                         with col4:
                             st.write(result["Result"])
                     st.divider()
+
+                # Logs Section
+                if st.session_state.health_check_logs:
+                    st.divider()
+                    st.subheader("🧾 Health Check Logs")
+                    with st.container(border=True):
+                        for log in st.session_state.health_check_logs[-50:]:
+                            st.write(log)
                 
                 # Retry Logic for Failed Apps
                 failed_apps = [r for r in results if r["Color"] == "red"]
