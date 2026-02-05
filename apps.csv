@@ -4,7 +4,7 @@ PaymentAPI,https://httpbin.org/json,
 UserService,https://httpbin.org/get,
 OrderService,https://httpstat.us/200,OK
 InventoryAPI,https://httpbin.org/uuid,
-FailingService,https://httpstat.us/503,
+FlakyService,http://18.237.102.97:8000/health/flaky,
 SlowService,https://httpbin.org/delay/2,
 EPAS_Healthy,http://18.237.102.97:8000/health/ok,OK
 EPAS_Unhealthy,http://18.237.102.97:8000/health/fail,

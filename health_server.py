@@ -9,6 +9,8 @@ app = FastAPI(title="Health Check Demo Server")
 
 # Simulated EPAS app state - starts as DOWN (unhealthy)
 epas_app_running = False
+# Flaky endpoint state (first call fails, second succeeds)
+flaky_state = {"count": 0}
 
 
 @app.get("/health/ok")
@@ -33,6 +35,16 @@ def health_epas(response: Response):
     else:
         response.status_code = 503
         return {"status": "DOWN", "message": "EPAS application is not running - needs restart"}
+
+
+@app.get("/health/flaky")
+def health_flaky(response: Response):
+    """Fails first time, succeeds on retry"""
+    flaky_state["count"] += 1
+    if flaky_state["count"] == 1:
+        response.status_code = 503
+        return {"status": "DOWN", "message": "Temporary failure - retry will recover"}
+    return {"status": "OK", "message": "Recovered on retry"}
 
 
 @app.post("/epas/restart")
