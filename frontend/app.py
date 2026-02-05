@@ -409,12 +409,25 @@ def search_confluence(query):
         return None
 
 def web_search(query):
-    """Perform web search (mock for now)"""
+    """Perform actual Google search and return top results"""
     try:
-        # In production, use Google Custom Search API or similar
+        from googlesearch import search as google_search
+        
+        # Get top 3 search results
+        results = []
+        for url in google_search(query, num_results=3, sleep_interval=1):
+            results.append(url)
+        
+        if results:
+            formatted_results = "\n".join([f"• {url}" for url in results])
+            return f"🌐 **Web Search Results:**\n{formatted_results}"
+        else:
+            return None
+    except ImportError:
+        # Fallback if googlesearch-python not installed
         search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-        return f"🌐 Web results available at: {search_url}"
-    except:
+        return f"🌐 Search Google: {search_url}"
+    except Exception as e:
         return None
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
@@ -425,19 +438,21 @@ def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     
     # Step 1: Try Confluence first
     confluence_result = search_confluence(user_query)
-    if confluence_result:
+    if confluence_result and "Found in Confluence" in confluence_result:
         return confluence_result
     
-    # Step 2: Try web search
+    # Step 2: Try web search - now performs real Google search
     web_result = web_search(user_query)
-    if web_result:
-        web_response = f"{web_result}\n\n"
-    else:
-        web_response = ""
+    if web_result and "Web Search Results:" in web_result:
+        # Return actual web search results
+        return web_result
     
-    # Step 3: Fall back to LLM
+    # Step 3: Fall back to LLM if no web results found
     if not api_key:
-        return f"{web_response}AI search not available: GOOGLE_API_KEY not set."
+        fallback_msg = "AI search not available: GOOGLE_API_KEY not set."
+        if web_result:
+            return f"{web_result}\n\n{fallback_msg}"
+        return fallback_msg
     
     # Prepare context
     context_info = f"""
