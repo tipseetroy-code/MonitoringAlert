@@ -12,12 +12,12 @@ from base64 import b64encode
 CONFLUENCE_URL = "https://teammeenakshi.atlassian.net"
 CONFLUENCE_SPACE = "AgAH"  # Extract from URL path
 CONFLUENCE_PAGE_ID = os.getenv("CONFLUENCE_PAGE_ID", "458754")  # Update with actual page ID
-CONFLUENCE_USER = "porselvi.baskar@in.ey.com"
+CONFLUENCE_USER = os.getenv("CONFLUENCE_USER", "porselvi.baskar@in.ey.com")
 CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN", "your_token_here")
 
 def get_page_content(page_id):
     """Retrieve current page content"""
-    url = f"{CONFLUENCE_URL}/rest/api/3/pages/{page_id}"
+    url = f"{CONFLUENCE_URL}/wiki/rest/api/content/{page_id}?expand=version,space"
     
     auth = b64encode(f"{CONFLUENCE_USER}:{CONFLUENCE_API_TOKEN}".encode()).decode()
     headers = {
@@ -36,7 +36,7 @@ def get_page_content(page_id):
 
 def update_page_content(page_id, title, content, version):
     """Update Confluence page with new content"""
-    url = f"{CONFLUENCE_URL}/rest/api/3/pages/{page_id}"
+    url = f"{CONFLUENCE_URL}/wiki/rest/api/content/{page_id}"
     
     auth = b64encode(f"{CONFLUENCE_USER}:{CONFLUENCE_API_TOKEN}".encode()).decode()
     headers = {
