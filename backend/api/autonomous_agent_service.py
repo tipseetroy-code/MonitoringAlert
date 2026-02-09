@@ -47,7 +47,7 @@ class AgentDecision:
 class SSLCertificateAgent:
     """Agent: Autonomous SSL Certificate Management"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash-002"):
+    def __init__(self, client: genai.Client, model: str = "models/gemini-1.5-flash-002"):
         self.client = client
         self.model = model
         self.name = "SSL Certificate Agent"
@@ -141,7 +141,7 @@ class SSLCertificateAgent:
 class VulnerabilityRemediationAgent:
     """Agent: Autonomous Vulnerability Patching"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash-002"):
+    def __init__(self, client: genai.Client, model: str = "models/gemini-1.5-flash-002"):
         self.client = client
         self.model = model
         self.name = "Vulnerability Remediation Agent"
@@ -231,7 +231,7 @@ class VulnerabilityRemediationAgent:
 class HealthCheckAgent:
     """Agent: Autonomous System Health Monitoring"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash-002"):
+    def __init__(self, client: genai.Client, model: str = "models/gemini-1.5-flash-002"):
         self.client = client
         self.model = model
         self.name = "Health Check Agent"
@@ -316,7 +316,7 @@ class HealthCheckAgent:
 class ProblemDetectionAgent:
     """Agent: Autonomous Problem Detection & Jira Creation"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash-002"):
+    def __init__(self, client: genai.Client, model: str = "models/gemini-1.5-flash-002"):
         self.client = client
         self.model = model
         self.name = "Problem Detection Agent"
