@@ -15,7 +15,8 @@ import os
 import time as pytime
 
 from dotenv import load_dotenv
-load_dotenv()
+DOTENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(DOTENV_PATH, override=True)
 
 st.set_page_config(
     page_title="Agent Automation",
@@ -74,6 +75,197 @@ def check_app_health(app):
             "Result": f"❌ Error: {str(e)[:30]}",
             "Color": "red"
         }
+
+
+def _incident_memory_path():
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.join(base_dir, "shared", "incident_memory.json")
+
+
+def load_incident_memory():
+    path = _incident_memory_path()
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+
+def save_incident_memory(entries):
+    path = _incident_memory_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def agentic_reason_and_decide(result, memory, policy):
+    app_name = result.get("AppName")
+    is_failed = result.get("Color") == "red"
+    in_change_window = _in_change_window(policy)
+
+    recent = [m for m in memory if m.get("app") == app_name][-3:]
+    previous_restart_success = any(m.get("action") == "restart" and m.get("outcome") == "resolved" for m in recent)
+
+    today = now_local.strftime("%Y-%m-%d")
+    restarts_today = len([m for m in memory if m.get("app") == app_name and m.get("action") == "restart" and m.get("timestamp", "").startswith(today)])
+
+    allow_restart = policy.get("allow_restart", True) and in_change_window and restarts_today < policy.get("max_restarts_per_day", 2)
+
+    reason = "Health check failed" if is_failed else "Health check OK"
+    if previous_restart_success:
+        reason += "; recent restart previously resolved similar issue"
+
+    decision = {
+        "app": app_name,
+        "url": result.get("URL"),
+        "status": result.get("Status"),
+        "failed": is_failed,
+        "action": "restart" if is_failed and allow_restart else "no_action",
+        "safe_to_act": allow_restart,
+        "requires_approval": policy.get("require_approval", False),
+        "reason": reason,
+        "confidence": 0.75 if previous_restart_success else 0.55,
+    }
+
+    if not in_change_window:
+        decision["action"] = "no_action"
+        decision["safe_to_act"] = False
+        decision["reason"] += "; outside change window"
+
+    if restarts_today >= policy.get("max_restarts_per_day", 2):
+        decision["action"] = "no_action"
+        decision["safe_to_act"] = False
+        decision["reason"] += "; restart limit reached"
+
+    return decision
+
+
+def agentic_execute_restart(result):
+    return {
+        "outcome": "resolved",
+        "details": "Restart simulated and service recovered",
+    }
+
+
+def _llm_extract_json(text: str):
+    if not text:
+        return None
+    cleaned = re.sub(r"```(?:json)?\s*", "", text, flags=re.IGNORECASE).replace("```", "").strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def llm_reason_decide(result, memory, policy):
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    if not api_key:
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception:
+        return None
+
+    recent = [m for m in memory if m.get("app") == result.get("AppName")][-3:]
+    prompt = f"""
+You are an SRE assistant. Decide whether to restart a service.
+
+Return ONLY JSON with keys:
+action: "restart" or "no_action"
+reason: short text
+confidence: number 0-1
+
+Signal:
+app={result.get('AppName')}
+url={result.get('URL')}
+status={result.get('Status')}
+result={result.get('Result')}
+
+Recent history (last 3):
+{json.dumps(recent, ensure_ascii=False)}
+
+Policy:
+allow_restart={policy.get('allow_restart')}
+require_approval={policy.get('require_approval')}
+max_restarts_per_day={policy.get('max_restarts_per_day')}
+change_window={policy.get('change_window')}
+"""
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=types.GenerateContentConfig(temperature=0.2)
+    )
+
+    parsed = _llm_extract_json(response.text or "")
+    if not parsed:
+        return None
+
+    action = parsed.get("action")
+    if action not in {"restart", "no_action"}:
+        return None
+
+    return {
+        "action": action,
+        "reason": parsed.get("reason", "LLM decision"),
+        "confidence": float(parsed.get("confidence", 0.6) or 0.6),
+    }
+
+
+def _policy_path():
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.join(base_dir, "shared", "policy.json")
+
+
+def load_policy():
+    path = _policy_path()
+    default_policy = {
+        "allow_restart": True,
+        "require_approval": True,
+        "max_restarts_per_day": 2,
+        "change_window": {"start_hour": 9, "end_hour": 18},
+    }
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default_policy
+
+
+def save_policy(policy):
+    path = _policy_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(policy, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _in_change_window(policy):
+    window = policy.get("change_window", {})
+    start_hour = int(window.get("start_hour", 9))
+    end_hour = int(window.get("end_hour", 18))
+    now_hour = datetime.now().hour
+    return start_hour <= now_hour < end_hour
 
 def send_health_check_to_teams(results, attempt=1, recovered=None):
     """Send health check results to Teams"""
@@ -358,6 +550,70 @@ def ssl_renew_steps(domain):
         f"[{datetime.now().strftime('%H:%M:%S')}] New expiry date: {(datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')}"
     ]
 
+def _ssl_calc_days_remaining(expiry_date_str):
+    try:
+        expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d")
+        return (expiry_date - datetime.now()).days
+    except Exception:
+        return None
+
+def update_ssl_inventory(domain, status="Valid", days_valid=365, issuer="Let's Encrypt"):
+    """Update SSL inventory (session + CSV) after renewal."""
+    if not domain:
+        return None
+
+    file_path = "ssl_certificates.csv"
+    expiry_date = (datetime.now() + timedelta(days=days_valid)).strftime("%Y-%m-%d")
+    days_remaining = _ssl_calc_days_remaining(expiry_date)
+    last_renewed = datetime.now().strftime("%Y-%m-%d")
+
+    df = st.session_state.ssl_certs_df
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "Domain", "Status", "Expiry", "IssuerCN", "DaysRemaining", "VaultLocation", "LastRenewed"
+        ])
+
+    normalized = domain.strip().lower()
+    if "Domain" in df.columns:
+        match_idx = df[df["Domain"].astype(str).str.lower() == normalized].index
+    else:
+        match_idx = []
+
+    if len(match_idx) > 0:
+        idx = match_idx[0]
+        df.at[idx, "Status"] = status
+        df.at[idx, "Expiry"] = expiry_date
+        if "IssuerCN" in df.columns and not df.at[idx, "IssuerCN"]:
+            df.at[idx, "IssuerCN"] = issuer
+        if "DaysRemaining" in df.columns:
+            df.at[idx, "DaysRemaining"] = days_remaining
+        if "LastRenewed" in df.columns:
+            df.at[idx, "LastRenewed"] = last_renewed
+        if "VaultLocation" in df.columns and not df.at[idx, "VaultLocation"]:
+            df.at[idx, "VaultLocation"] = f"vault://secret/ssl/{domain}"
+    else:
+        df = pd.concat([
+            df,
+            pd.DataFrame([
+                {
+                    "Domain": domain,
+                    "Status": status,
+                    "Expiry": expiry_date,
+                    "IssuerCN": issuer,
+                    "DaysRemaining": days_remaining,
+                    "VaultLocation": f"vault://secret/ssl/{domain}",
+                    "LastRenewed": last_renewed
+                }
+            ])
+        ], ignore_index=True)
+
+    st.session_state.ssl_certs_df = df
+    try:
+        df.to_csv(file_path, index=False)
+    except Exception:
+        pass
+    return df
+
 def ssl_vault_steps(domain):
     """SOP-driven SSL vaulting steps"""
     confluence_url = "https://teammeenakshi.atlassian.net/wiki/x/AgAH"
@@ -524,7 +780,8 @@ def web_search(query):
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
-    from google.generativeai import GenerativeModel
+    from google import genai
+    from google.genai import types
     
     api_key = os.getenv("GOOGLE_API_KEY", "")
     
@@ -563,43 +820,46 @@ Vulnerability KB (if available): {vuln_df.head(3).to_dict() if vuln_df is not No
 """
     
     system_prompt = f"""
-You are an advanced DevOps Engineer AI chatbot for system monitoring and incident response.
+You are an Intelligent Assistant helping users with various queries in a friendly and approachable manner.
 
 Your role:
 1. Answer user queries by searching Confluence documentation first
 2. If not in Confluence, perform web search and check current knowledge
-3. Provide troubleshooting steps based on best practices
-4. Suggest escalation if unable to resolve
+3. Provide helpful information in simple, easy-to-understand language
+4. Be conversational and friendly
 
 Capabilities:
-- Access system metrics and incidents
-- Provide troubleshooting advice
-- Suggest automated emails with remediation steps
+- Access system information and documentation
+- Provide helpful guidance and troubleshooting advice
+- Answer general questions
 
 Context: {context_info}
 
-Respond helpfully, provide actionable steps, and escalate if needed.
+Respond in a friendly and helpful way. Keep explanations clear and simple.
 """
     
     try:
-        model = GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system_prompt
+        client = genai.Client(api_key=api_key)
+        
+        full_query = f"User query: {user_query}\n\nBased on the available information and web search results, provide a helpful response."
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=full_query,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.7
+            )
         )
         
-        full_query = f"User query: {user_query}\n\nBased on the system context and web search results above, provide a DevOps engineer response."
-        response = model.generate_content(full_query)
+        llm_response = response.text if response.text else ""
         
-        llm_response = ""
-        if response.candidates and response.candidates[0].content:
-            parts = response.candidates[0].content.parts
-            for part in parts:
-                if hasattr(part, 'text'):
-                    llm_response += part.text
-        
-            return f"{web_result}\n\n**AI Response:**\n{llm_response.strip()}" if llm_response else f"{web_result}\n\nAI could not generate a response."
+        if llm_response:
+            return f"{web_result}\n\n**AI Response:**\n{llm_response.strip()}" if web_result else llm_response.strip()
+        else:
+            return f"{web_result}\n\nAI could not generate a response." if web_result else "AI could not generate a response."
     except Exception as e:
-        return f"{web_result}\n\nAI error: {str(e)}"
+        return f"{web_result}\n\nAI error: {str(e)}" if web_result else f"AI error: {str(e)}"
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 
@@ -621,7 +881,7 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
     # Handle greetings
     greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings"]
     if any(greet in query for greet in greetings) and len(query.split()) <= 3:
-        return "👋 Hello! I'm your Ops Chatbot. I can help with system monitoring, incidents, vulnerabilities, and provide troubleshooting advice. What would you like to know?"
+        return "👋 Hello! I'm your lowerlane environment chatbot. I can help with system monitoring, incidents, vulnerabilities, and provide troubleshooting advice. What would you like to know?"
     
     # Handle casual queries
     if "how are you" in query.lower() or "how do you do" in query.lower():
@@ -695,7 +955,20 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
     # -------- DEPLOYMENTS --------
     if "deployment" in query or "server" in query:
         # Simulate deployment and restart
-        return f"Deployment detected. Supporting directories ensured and app restarted as per [Confluence KB]({CONFLUENCE_KB_URL})."
+        return (
+            "🚀 **Deployment Plan (Demo)**\n\n"
+            "**Plan Steps:**\n"
+            "1. Validate build artifacts and configuration.\n"
+            "2. Run pre-deployment health checks.\n"
+            "3. Deploy to staging and run smoke tests.\n"
+            "4. Deploy to production with rolling restart.\n"
+            "5. Verify service health and key metrics.\n\n"
+            f"See [Confluence KB]({CONFLUENCE_KB_URL}) for standard procedures.\n\n"
+            "**Demo Summary:**\n"
+            "- Deployment completed successfully with no downtime.\n"
+            "- All checks passed and services are healthy.\n"
+            "- Monitoring confirmed stable performance post-release."
+        )
 
     # -------- AUTOSYS --------
     if "autosys" in query:
@@ -1038,11 +1311,11 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["Self Healing", "Deployment", "Ops Chatbot", "Health Check", "SSL & Vault POC", "Problems & Jira"])
+    tabs = st.tabs(["lowerlane environment chatbot", "Self Healing", "Deployment", "Problems & Jira", "🤖 Agentic Copilot"])
 
     # --- Self Healing tab (enhanced) ---
-    with tabs[0]:
-        st.header("🔧 Self-Healing & SSL Management")
+    with tabs[1]:
+        st.header("🔧 Self-Healing")
 
         # Agent Status (with timeout handling)
         try:
@@ -1053,52 +1326,8 @@ def main_app():
             agent_running = True  # Assume running for demo
         st.subheader(f"Agent Status: {'🟢 Running (24/7)' if agent_running else '🔴 Stopped (Backend unavailable)'}")
 
-        st.subheader("EPAS Live URL")
-        epas_url = st.text_input(
-            "EPAS Health URL",
-            value="http://18.237.102.97:8000/health/epas",
-            help="Use your live EPAS health endpoint"
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Check EPAS Health"):
-                with st.spinner("Checking EPAS health..."):
-                    try:
-                        resp = requests.get(epas_url, timeout=8, verify=False)
-                        if resp.status_code == 200:
-                            st.success(f"✅ EPAS is healthy: {resp.text}")
-                        else:
-                            st.error(f"❌ EPAS unhealthy (status {resp.status_code}): {resp.text}")
-                    except Exception as e:
-                        st.error(f"❌ EPAS check failed: {str(e)}")
-
-        with col2:
-            if st.button("Restart EPAS"):
-                with st.spinner("Restarting EPAS..."):
-                    try:
-                        restart_url = epas_url.replace("/health/epas", "/epas/restart")
-                        resp = requests.post(restart_url, timeout=8, verify=False)
-                        if resp.status_code in (200, 201):
-                            st.success(f"✅ EPAS restart triggered: {resp.text}")
-                        else:
-                            st.error(f"❌ Restart failed (status {resp.status_code}): {resp.text}")
-                    except Exception as e:
-                        st.error(f"❌ Restart failed: {str(e)}")
-
-        st.subheader("Disk Space Analysis")
-        if st.button("Analyze Disk Space"):
-            import subprocess
-            result = subprocess.run(['df', '-h'], capture_output=True, text=True)
-            st.code(result.stdout)
-
-        if st.button("Create Dummy File (100MB) for Testing Disk Cleanup"):
-            import subprocess
-            result = subprocess.run(['dd', 'if=/dev/zero', 'of=/tmp/dummy_test', 'bs=1M', 'count=100'], capture_output=True, text=True)
-            st.success("Created 100MB dummy file at /tmp/dummy_test. Check disk usage and trigger self-healing if needed.")
-
     # --- Deployment tab ---
-    with tabs[1]:
+    with tabs[2]:
         st.header("🚀 Deployment Console (with Auto-Detection)")
 
         st.markdown("""
@@ -1377,9 +1606,22 @@ def main_app():
                     disabled=True
                 )
 
-    # --- Ops Chatbot tab ---
-    with tabs[2]:
-        st.header("💬 Ops Chatbot")
+    # --- lowerlane environment chatbot tab ---
+    with tabs[0]:
+        st.header("💬 lowerlane environment chatbot")
+
+        with st.expander("How this works (Agentic flow)", expanded=False):
+            st.markdown(
+                """
+                **Signal → Reason → Decide → Act → Learn**
+
+                **LLM (Brain):** Interprets health signals, reasons over logs/runbooks, proposes safe remediation.
+                **Orchestrator:** Breaks tasks into steps, invokes tools, applies guardrails.
+                **Memory:** Uses recent context + historical incidents + policy rules.
+
+                **Demo flow:** detect degradation → collect metrics/logs → reason → safety checks → restart → verify → log outcome.
+                """
+            )
 
         # Show suggestions only when chat is empty
         if "messages" not in st.session_state or not st.session_state.messages:
@@ -1466,8 +1708,7 @@ def main_app():
             # Refresh to show new messages
             st.rerun()
 
-    # --- Health Check tab ---
-    with tabs[3]:
+        st.divider()
         st.header("🏥 Health Check Monitoring")
         
         # Configuration Section
@@ -1503,6 +1744,14 @@ def main_app():
         else:
             # Health Check Execution
             st.subheader("📊 Health Check Execution")
+
+            live_health_url = st.text_input(
+                "Live Health URL",
+                value="http://18.237.102.97:8000/health/epas",
+                help="Optional: Use a single live URL for health check"
+            )
+            use_live_url = st.checkbox("Use Live URL for health check", value=False)
+
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -1517,21 +1766,80 @@ def main_app():
                 auto_retry_failed = st.checkbox("Auto-retry failed apps after delay", value=True)
             with retry_col2:
                 retry_delay_sec = st.number_input("Retry delay (sec)", min_value=5, max_value=300, value=30, step=5)
+
+            st.subheader("🤖 Agentic Auto-Restart (Demo)")
+            policy = load_policy()
+            agentic_col1, agentic_col2, agentic_col3, agentic_col4 = st.columns(4)
+            with agentic_col1:
+                agentic_enabled = st.checkbox("Enable agentic flow", value=True)
+            with agentic_col2:
+                require_approval = st.checkbox("Require approval", value=policy.get("require_approval", True))
+            with agentic_col3:
+                allow_restart = st.checkbox("Allow restart", value=policy.get("allow_restart", True))
+            with agentic_col4:
+                max_restarts_per_day = st.number_input(
+                    "Max restarts/day",
+                    min_value=1,
+                    max_value=10,
+                    value=int(policy.get("max_restarts_per_day", 2)),
+                    step=1
+                )
+
+            llm_reasoning = st.checkbox("Use LLM reasoning", value=True)
+
+            with st.expander("Policy gates", expanded=False):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    start_hour = st.number_input(
+                        "Change window start hour",
+                        min_value=0,
+                        max_value=23,
+                        value=int(policy.get("change_window", {}).get("start_hour", 9)),
+                        step=1
+                    )
+                with col_b:
+                    end_hour = st.number_input(
+                        "Change window end hour",
+                        min_value=1,
+                        max_value=24,
+                        value=int(policy.get("change_window", {}).get("end_hour", 18)),
+                        step=1
+                    )
+
+                if st.button("Save policy", use_container_width=True):
+                    policy_update = {
+                        "allow_restart": allow_restart,
+                        "require_approval": require_approval,
+                        "max_restarts_per_day": int(max_restarts_per_day),
+                        "change_window": {"start_hour": int(start_hour), "end_hour": int(end_hour)},
+                    }
+                    save_policy(policy_update)
+                    st.success("Policy updated")
             
             if run_health_check:
                 with st.spinner("Running health checks..."):
-                    st.session_state.health_check_logs.append(f"{utc_now()} | RUN_START | total_apps={len(st.session_state.apps)}")
+                    apps_to_check = st.session_state.apps
+                    if use_live_url and live_health_url:
+                        apps_to_check = [{
+                            "AppName": "Live Health URL",
+                            "URL": live_health_url,
+                            "Expected": "200"
+                        }]
+
+                    st.session_state.health_check_logs.append(
+                        f"{utc_now()} | RUN_START | total_apps={len(apps_to_check)}"
+                    )
                     results = []
                     progress_bar = st.progress(0)
                     
-                    for idx, app in enumerate(st.session_state.apps):
+                    for idx, app in enumerate(apps_to_check):
                         result = check_app_health(app)
                         results.append(result)
                         status_flag = "OK" if result["Color"] == "green" else "FAIL"
                         st.session_state.health_check_logs.append(
                             f"{utc_now()} | CHECK_{status_flag} | app={result['AppName']} | url={result['URL']} | status={result['Status']}"
                         )
-                        progress_bar.progress((idx + 1) / len(st.session_state.apps))
+                        progress_bar.progress((idx + 1) / len(apps_to_check))
                     
                     # Optional auto-retry for failed apps (useful after restart)
                     failed_after_first = [r for r in results if r["Color"] == "red"]
@@ -1543,7 +1851,7 @@ def main_app():
                         pytime.sleep(int(retry_delay_sec))
 
                         retry_results = []
-                        for app in st.session_state.apps:
+                        for app in apps_to_check:
                             if any(r["AppName"] == app["AppName"] and r["Color"] == "red" for r in results):
                                 retry_results.append(check_app_health(app))
 
@@ -1560,6 +1868,66 @@ def main_app():
                             merged.append(retry_map.get(r["AppName"], r))
 
                         results = merged
+
+                    # Agentic auto-restart (demo)
+                    st.session_state.agentic_actions = []
+                    if agentic_enabled:
+                        memory = load_incident_memory()
+                        policy = load_policy()
+                        policy["allow_restart"] = allow_restart
+                        policy["require_approval"] = require_approval
+                        policy["max_restarts_per_day"] = int(max_restarts_per_day)
+
+                        for result in results:
+                            if result["Color"] != "red":
+                                continue
+                            decision = agentic_reason_and_decide(result, memory, policy)
+                            if llm_reasoning:
+                                llm_decision = llm_reason_decide(result, memory, policy)
+                                if llm_decision:
+                                    decision["action"] = llm_decision.get("action", decision["action"])
+                                    decision["reason"] = llm_decision.get("reason", decision["reason"])
+                                    decision["confidence"] = llm_decision.get("confidence", decision["confidence"])
+                            st.session_state.agentic_actions.append(decision)
+
+                            st.session_state.health_check_logs.append(
+                                f"{utc_now()} | AGENTIC_DECIDE | app={decision['app']} | action={decision['action']} | safe={decision['safe_to_act']} | reason={decision['reason']}"
+                            )
+
+                            if decision["action"] == "restart" and decision["safe_to_act"]:
+                                if decision["requires_approval"]:
+                                    st.session_state.health_check_logs.append(
+                                        f"{utc_now()} | AGENTIC_PENDING_APPROVAL | app={decision['app']}"
+                                    )
+                                    memory.append({
+                                        "timestamp": utc_now(),
+                                        "app": decision["app"],
+                                        "action": "restart",
+                                        "outcome": "pending_approval",
+                                        "reason": decision["reason"],
+                                    })
+                                else:
+                                    outcome = agentic_execute_restart(result)
+                                    st.session_state.health_check_logs.append(
+                                        f"{utc_now()} | AGENTIC_RESTART | app={decision['app']} | outcome={outcome['outcome']}"
+                                    )
+                                    memory.append({
+                                        "timestamp": utc_now(),
+                                        "app": decision["app"],
+                                        "action": "restart",
+                                        "outcome": outcome["outcome"],
+                                        "reason": decision["reason"],
+                                    })
+                            else:
+                                memory.append({
+                                    "timestamp": utc_now(),
+                                    "app": decision["app"],
+                                    "action": "no_action",
+                                    "outcome": "skipped",
+                                    "reason": decision["reason"],
+                                })
+
+                        save_incident_memory(memory)
 
                     st.session_state.health_check_results = results
                     st.session_state.health_check_history.append({
@@ -1598,6 +1966,29 @@ def main_app():
                     st.metric("❌ Unhealthy", unhealthy, delta=f"-{unhealthy}" if unhealthy > 0 else "")
                 
                 st.divider()
+
+                if st.session_state.get("agentic_actions"):
+                    with st.expander("🤖 Agentic Decisions", expanded=False):
+                        memory = load_incident_memory()
+                        for action in st.session_state.agentic_actions:
+                            st.write(
+                                f"**{action['app']}** → `{action['action']}` | safe={action['safe_to_act']} | reason: {action['reason']}"
+                            )
+                            if action["action"] == "restart" and action.get("requires_approval"):
+                                if st.button(f"Approve restart: {action['app']}", key=f"approve_{action['app']}"):
+                                    outcome = agentic_execute_restart({"AppName": action["app"]})
+                                    st.success(f"Restart approved for {action['app']}: {outcome['details']}")
+                                    st.session_state.health_check_logs.append(
+                                        f"{utc_now()} | AGENTIC_RESTART | app={action['app']} | outcome={outcome['outcome']}"
+                                    )
+                                    memory.append({
+                                        "timestamp": utc_now(),
+                                        "app": action["app"],
+                                        "action": "restart",
+                                        "outcome": outcome["outcome"],
+                                        "reason": action["reason"],
+                                    })
+                                    save_incident_memory(memory)
                 
                 # Detailed Table
                 st.write("### Detailed Status")
@@ -1668,10 +2059,24 @@ def main_app():
                         
                         for result in hist_results:
                             st.write(f"- {result['AppName']}: {result['Result']}")
+        
+        # --- Disk Space Analysis Section ---
+        st.divider()
+        st.header("💾 Disk Space Analysis")
+        
+        if st.button("Analyze Disk Space"):
+            import subprocess
+            result = subprocess.run(['df', '-h'], capture_output=True, text=True)
+            st.code(result.stdout)
 
-    # --- SSL & Vault POC tab ---
-    with tabs[4]:
-        st.header("🔐 SSL & Vault Management (POC)")
+        if st.button("Create Dummy File (100MB) for Testing Disk Cleanup"):
+            import subprocess
+            result = subprocess.run(['dd', 'if=/dev/zero', 'of=/tmp/dummy_test', 'bs=1M', 'count=100'], capture_output=True, text=True)
+            st.success("Created 100MB dummy file at /tmp/dummy_test. Check disk usage and trigger self-healing if needed.")
+
+    # --- SSL Management tab ---
+    with tabs[3]:
+        st.header("🔐 SSL Management")
         st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
 
         st.subheader("⚡ Quick SSL Actions")
@@ -1682,13 +2087,23 @@ def main_app():
             if ssl_domain:
                 with st.spinner("Processing..."):
                     if ssl_action == "Renew Certificate":
+                        update_ssl_inventory(ssl_domain, status="Valid", days_valid=365)
                         st.success(
                             f"SSL certificate for '{ssl_domain}' renewed successfully. "
                             f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
                         )
                     elif ssl_action == "Check Status":
-                        status = "Valid" if random.choice([True, False]) else "Expired"
-                        st.info(f"Certificate for '{ssl_domain}' is {status}.")
+                        df = st.session_state.ssl_certs_df
+                        if df is not None and not df.empty and "Domain" in df.columns:
+                            match = df[df["Domain"].astype(str).str.lower() == ssl_domain.strip().lower()]
+                            if not match.empty:
+                                status = match.iloc[0].get("Status", "Unknown")
+                                expiry = match.iloc[0].get("Expiry", "N/A")
+                                st.info(f"Certificate for '{ssl_domain}' is {status}. Expiry: {expiry}.")
+                            else:
+                                st.warning(f"Certificate for '{ssl_domain}' not found in inventory. Consider renewing.")
+                        else:
+                            st.warning("SSL inventory not loaded. Add ssl_certificates.csv in app root.")
             else:
                 st.error("Please enter a domain.")
 
@@ -1696,7 +2111,10 @@ def main_app():
             st.warning("⚠️ No SSL inventory found. Add ssl_certificates.csv in app root.")
         else:
             st.subheader("📊 SSL Certificate Inventory")
-            st.dataframe(st.session_state.ssl_certs_df, use_container_width=True)
+            ssl_df = st.session_state.ssl_certs_df.copy()
+            if "VaultLocation" in ssl_df.columns:
+                ssl_df = ssl_df.drop(columns=["VaultLocation"])
+            st.dataframe(ssl_df, use_container_width=True)
 
         st.divider()
 
@@ -1706,11 +2124,13 @@ def main_app():
             if renew_domain:
                 for step in ssl_renew_steps(renew_domain):
                     st.info(step)
+                update_ssl_inventory(renew_domain, status="Valid", days_valid=365)
+                st.success(f"Inventory updated for '{renew_domain}'.")
             else:
                 st.error("Please enter a domain")
 
     # --- Problems & Jira Tickets tab ---
-    with tabs[5]:
+    with tabs[3]:
         st.header("🎟️ Problem Tracking & Auto-Created Jira Tickets")
         
         st.markdown("""
@@ -1994,6 +2414,174 @@ def main_app():
             st.session_state.tracked_problems.append(problem)
             st.success("✅ Problem solved by agent - No Jira ticket created")
             st.rerun()
+
+    # --- Agentic Copilot tab ---
+    with tabs[4]:
+        st.header("🤖 Agentic SRE Copilot - Live on EC2")
+        
+        st.markdown("""
+        **Autonomous Incident Management System**  
+        Deployed on EC2: `18.237.102.97`  
+        Running 24/7 monitoring every 30 seconds
+        """)
+        
+        st.divider()
+        
+        # Service Status
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Service Status", "🟢 Active")
+        with col2:
+            st.metric("Location", "EC2 Production")
+        with col3:
+            st.metric("Uptime", "Live")
+        
+        st.divider()
+        
+        # Agentic Loop Visualization
+        st.subheader("🔄 Agentic Loop (Every 30s)")
+        st.markdown("""
+        ```
+        1. PERCEIVE  → Collect health signals (HTTP, logs, metrics, systemd)
+        2. REASON    → LLM analyzes with Gemini AI
+        3. PLAN      → Policy gates (approval, rate limits, change windows)
+        4. ACT       → Safe execution (pre-checks, rollback)
+        5. REFLECT   → Calculate MTTR, analyze outcomes
+        6. LEARN     → Update memory, improve patterns
+        ```
+        """)
+        
+        st.divider()
+        
+        # Real-time Logs from EC2
+        st.subheader("📊 Live Agent Activity")
+        
+        if st.button("🔄 Refresh Logs from EC2"):
+            with st.spinner("Fetching logs from EC2..."):
+                pytime.sleep(1)
+                st.info("✅ Logs refreshed (manual SSH required for real-time logs)")
+        
+        st.markdown("""
+        **SSH to view live logs:**
+        ```bash
+        ssh -i "Team Meenakshi.pem" ubuntu@18.237.102.97
+        sudo tail -f /var/log/sre-agent/agentic.log
+        ```
+        """)
+        
+        st.divider()
+        
+        # Quick Stats
+        st.subheader("📈 Agent Statistics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Apps Monitored", "3")
+        with col2:
+            st.metric("Signals/Cycle", "15")
+        with col3:
+            st.metric("Incidents Detected", "Multiple")
+        with col4:
+            st.metric("Auto-Actions", "Policy Blocked (Safe)")
+        
+        st.divider()
+        
+        # Integration Status
+        st.subheader("🔌 Integration Status")
+        
+        integration_status = {
+            "Google Gemini API": {"status": "⚠️ Quota Exceeded", "details": "Free tier limit hit - using fallback reasoning"},
+            "JIRA Integration": {"status": "✅ Connected", "details": "https://teammeenakshi.atlassian.net (KAN project)"},
+            "SMTP Notifications": {"status": "⏸️ Not Configured", "details": "Optional - can be enabled"},
+            "Audit Database": {"status": "✅ Active", "details": "/var/lib/sre-agent/sre_audit.db"},
+            "Incident Memory": {"status": "✅ Recording", "details": "/var/lib/sre-agent/incident_memory.json"}
+        }
+        
+        for name, info in integration_status.items():
+            with st.expander(f"{name} - {info['status']}"):
+                st.write(info['details'])
+        
+        st.divider()
+        
+        # Policy Configuration
+        st.subheader("🛡️ Safety Policies")
+        
+        st.markdown("""
+        **Current Policy Settings:**
+        - ✅ Auto-restart: Enabled (with approval gates)
+        - 🔒 Max restarts/day: 5 per app
+        - ⏰ Change window: 9 AM - 5 PM UTC
+        - 🚨 Escalation threshold: 3 incidents in 60 min
+        - ✋ Requires approval: CRITICAL incidents only
+        """)
+        
+        st.divider()
+        
+        # SSH Commands Section
+        st.subheader("🖥️ Management Commands")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **Service Control:**
+            ```bash
+            # Check status
+            systemctl status sre-agent
+            
+            # View live logs
+            tail -f /var/log/sre-agent/agentic.log
+            
+            # Restart service
+            systemctl restart sre-agent
+            ```
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Query Data:**
+            ```bash
+            # View incident memory
+            cat /var/lib/sre-agent/incident_memory.json
+            
+            # Query audit database
+            sqlite3 /var/lib/sre-agent/sre_audit.db
+            
+            # Check performance
+            grep "RESOLVED" /var/log/sre-agent/agentic.log
+            ```
+            """)
+        
+        st.divider()
+        
+        # Documentation Links
+        st.subheader("📚 Documentation")
+        
+        docs = {
+            "AGENTIC_ARCHITECTURE.md": "Complete system architecture and data flows",
+            "DEPLOYMENT_QUICK_START.md": "Deployment guide and troubleshooting",
+            "README_AGENTIC.md": "Usage guide and examples",
+            "VISUAL_ARCHITECTURE.md": "Visual diagrams and flow charts",
+            "DEPLOYMENT_STATUS.md": "Current deployment status and next steps"
+        }
+        
+        for doc, desc in docs.items():
+            st.write(f"📄 **{doc}** - {desc}")
+        
+        st.divider()
+        
+        # Alert banner
+        st.warning("""
+        ⚠️ **Note:** Agent is currently operating with fallback reasoning due to Gemini API quota limits.
+        Upgrade to paid tier or wait 24 hours for quota reset to enable full LLM-powered decision making.
+        """)
+        
+        st.success("""
+        ✅ **Agentic SRE Copilot is LIVE and monitoring your applications autonomously!**
+        
+        The agent is detecting incidents, analyzing with AI reasoning (when quota available), 
+        enforcing safety policies, and ready to take autonomous actions when approved.
+        """)
 
 if not st.session_state.logged_in:
     login_page()
