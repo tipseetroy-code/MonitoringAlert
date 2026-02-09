@@ -168,6 +168,16 @@ class SSLCertificateAgent:
         elif decision.decision == "escalate":
             # Create Jira + notify team
             await self._create_jira_and_notify(decision)
+    
+    async def _autonomous_renew(self, cert: Dict) -> Dict:
+        """Autonomous certificate renewal (stub)"""
+        logger.info(f"🔄 Renewing certificate for {cert['domain']}...")
+        # Placeholder: Would call Venefi/Let's Encrypt APIs
+        return {"success": True, "domain": cert["domain"], "renewed_at": datetime.now().isoformat()}
+    
+    async def _create_jira_and_notify(self, decision: AgentDecision):
+        """Create Jira ticket and notify (stub)"""
+        logger.info(f"🎫 Creating Jira ticket for {decision.context['certificate']['domain']}...")
 
 
 class VulnerabilityRemediationAgent:
@@ -258,6 +268,12 @@ class VulnerabilityRemediationAgent:
             decision.executed = True
             decision.result = result
             logger.info(f"✅ Vulnerability patched: {decision.context['vulnerability']['cve']}")
+    
+    async def _apply_patches(self, vuln: Dict) -> Dict:
+        """Apply vulnerability patches (stub)"""
+        logger.info(f"🔧 Applying patches for {vuln['cve']}...")
+        # Placeholder: Would execute patch automation
+        return {"success": True, "cve": vuln["cve"], "patched_at": datetime.now().isoformat()}
 
 
 class HealthCheckAgent:
@@ -343,6 +359,16 @@ class HealthCheckAgent:
         if decision.decision == "approve":
             await self._apply_remediation(decision.context["analysis"])
             decision.executed = True
+    
+    async def _apply_remediation(self, analysis: Dict):
+        """Apply health remediation (stub)"""
+        action = analysis.get("action", "none")
+        logger.info(f"⚙️ Applying remediation: {action}...")
+        # Placeholder: Would execute restart/scale operations
+        if "restart" in action:
+            logger.info("♻️ Restarting service...")
+        elif "scale" in action:
+            logger.info("📈 Scaling resources...")
 
 
 class ProblemDetectionAgent:
