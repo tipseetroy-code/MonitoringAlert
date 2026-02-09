@@ -94,6 +94,38 @@ def render_notifications_view(db_path: str = "/var/lib/sre-agent/sre_audit.db"):
     
     st.subheader("🔔 Real-Time Notifications")
     
+    # Check if database exists
+    if not os.path.exists(db_path):
+        st.warning(f"📂 Database not found at: `{db_path}`")
+        st.info("""
+        **To view notifications:**
+        
+        This dashboard is running locally but the notifications database is on the EC2 server.
+        
+        **Option 1: View on EC2 directly**
+        ```bash
+        ssh -i "Team Meenakshi.pem" ubuntu@18.237.102.97
+        sudo python3 << 'EOF'
+import sqlite3
+conn = sqlite3.connect('/var/lib/sre-agent/sre_audit.db')
+cursor = conn.cursor()
+cursor.execute('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 10')
+for row in cursor.fetchall():
+    print(row)
+conn.close()
+EOF
+        ```
+        
+        **Option 2: Copy database from EC2**
+        ```bash
+        scp -i "Team Meenakshi.pem" ubuntu@18.237.102.97:/var/lib/sre-agent/sre_audit.db ./local_notifications.db
+        ```
+        Then update the db_path in this function to point to `./local_notifications.db`
+        
+        **Option 3: Run Streamlit on EC2** (recommended for production)
+        """)
+        return
+    
     # Control bar
     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
     with col1:

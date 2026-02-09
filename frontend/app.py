@@ -2429,18 +2429,51 @@ def main_app():
                 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
                 from frontend.components.notifications_viewer import render_notifications_view
                 
-                # Use production DB path from EC2
-                db_path = "/var/lib/sre-agent/sre_audit.db"
+                # Check multiple possible database locations
+                possible_db_paths = [
+                    "/var/lib/sre-agent/sre_audit.db",  # EC2 production
+                    "/tmp/sre_audit.db",  # Local dev
+                    "sre_audit.db",  # Current directory
+                    "./local_notifications.db",  # Copied from EC2
+                ]
                 
-                # For local dev, fall back to temp path
-                if not os.path.exists(db_path):
-                    db_path = "/tmp/sre_audit.db"
+                db_path = None
+                for path in possible_db_paths:
+                    if os.path.exists(path):
+                        db_path = path
+                        break
                 
-                render_notifications_view(db_path)
+                if db_path:
+                    st.success(f"✅ Using database: {db_path}")
+                    render_notifications_view(db_path)
+                else:
+                    st.warning("📂 Database not found locally")
+                    st.info("""
+                    **The notifications database is on EC2, not on your local machine.**
+                    
+                    **Quick Solution: Copy database from EC2**
+                    
+                    Run this command in PowerShell:
+                    ```powershell
+                    scp -i "c:\\Users\\KF879ZY\\Downloads\\Team Meenakshi.pem" ubuntu@18.237.102.97:/var/lib/sre-agent/sre_audit.db C:\\Users\\KF879ZY\\Downloads\\local_notifications.db
+                    ```
+                    
+                    Then place `local_notifications.db` in:
+                    ```
+                    c:\\Users\\KF879ZY\\Downloads\\adk_code (2)\\adk_code\\chat_app\\__pycache__\\MonitoringAlert\\
+                    ```
+                    
+                    **Or view notifications via SSH:**
+                    ```bash
+                    ssh -i "Team Meenakshi.pem" ubuntu@18.237.102.97
+                    sudo python3 -c "import sqlite3; conn=sqlite3.connect('/var/lib/sre-agent/sre_audit.db'); cursor=conn.cursor(); cursor.execute('SELECT title, message, created_at FROM notifications ORDER BY created_at DESC LIMIT 10'); [print(row) for row in cursor.fetchall()]"
+                    ```
+                    """)
                 
             except Exception as e:
-                st.error(f"Unable to load notifications: {e}")
-                st.info("Notifications are stored in the database at /var/lib/sre-agent/sre_audit.db on EC2")
+                st.error(f"Unable to load notifications viewer: {e}")
+                import traceback
+                st.code(traceback.format_exc())
         
         # Overview Subtab
         with agentic_subtabs[0]:
