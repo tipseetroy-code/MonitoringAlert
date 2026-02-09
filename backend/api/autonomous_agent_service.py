@@ -322,8 +322,8 @@ class HealthCheckAgent:
             except Exception as e:
                 logger.error(f"❌ {self.name} error: {str(e)}")
             
-            # Run every 5 minutes
-            await asyncio.sleep(300)
+            # Run every 2 hours (reduced to save API quota)
+            await asyncio.sleep(7200)
     
     async def _collect_metrics(self) -> Dict:
         """Collect metrics by checking URLs from apps.csv"""
@@ -365,43 +365,61 @@ class HealthCheckAgent:
         }
     
     async def _analyze_health(self, metrics: Dict) -> Optional[AgentDecision]:
-        """LLM analyzes metrics and decides if remediation needed"""
+        """Analyzes health and decides if remediation needed (skips LLM to save quota)"""
         if metrics.get("down_count", 0) == 0:
             return None  # All services healthy
         
-        prompt = f"""
-        Analyze application health status:
-        {json.dumps(metrics, indent=2)}
+        # Skip LLM analysis - if services are down, just restart them
+        # This saves API quota (free tier = 20 calls/day)
+        down_apps = metrics.get('down_apps', [])
+        apps_to_restart = [app['app'] for app in down_apps]
         
-        There are {metrics['down_count']} services DOWN out of {metrics['total_apps']} total.
-        Down services: {[app['app'] for app in metrics.get('down_apps', [])]}
+        logger.info(f"⚠️ Detected {len(apps_to_restart)} down services: {apps_to_restart}")
         
-        Return JSON:
-        {{
-            "status": "healthy|degraded|critical",
-            "action": "restart_service|restart_docker|none",
-            "confidence": 0-1,
-            "apps_to_restart": ["list of app names to restart"],
-            "recommendation": "what_to_do"
-        }}
-        """
+        # Create decision without LLM analysis
+        data = {
+            "status": "critical" if len(apps_to_restart) > 2 else "degraded",
+            "action": "restart_docker",
+            "confidence": 1.0,  # High confidence for simple down detection
+            "apps_to_restart": apps_to_restart,
+            "recommendation": f"Restart {len(apps_to_restart)} down services"
+        }
         
-        try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt
-            )
-            
-            data = extract_json_from_response(response.text)
-            
-            if data.get("status") == "healthy":
-                return None
-            
-            return AgentDecision(
+        # Optional: Use LLM only for complex scenarios (uncomment if you have paid API)
+        # prompt = f"""
+        # Analyze application health status:
+        # {json.dumps(metrics, indent=2)}
+        # 
+        # There are {metrics['down_count']} services DOWN out of {metrics['total_apps']} total.
+        # Down services: {[app['app'] for app in metrics.get('down_apps', [])]}
+        # 
+        # Return JSON:
+        # {{
+        #     "status": "healthy|degraded|critical",
+        #     "action": "restart_service|restart_docker|none",
+        #     "confidence": 0-1,
+        #     "apps_to_restart": ["list of app names to restart"],
+        #     "recommendation": "what_to_do"
+        # }}
+        # """
+        
+        # LLM call skipped to save API quota - using simple rule-based decision
+        # try:
+        #     response = self.client.models.generate_content(
+        #         model=self.model,
+        #         contents=prompt
+        #     )
+        #     
+        #     data = extract_json_from_response(response.text)
+        #     
+        #     if data.get("status") == "healthy":
+        #         return None
+        
+        return AgentDecision(
                 agent_name=self.name,
-                decision="approve" if data.get("confidence", 0) > 0.7 else "defer",
-                action=ActionType.RESTART_SERVICE if "restart" in data.get("action", "") else ActionType.SCALE_RESOURCE,
-                confidence=data.get("confidence", 0),
+                decision="approve",  # Always approve restart for down services
+                action=ActionType.RESTART_SERVICE,
+                confidence=data.get("confidence", 1.0),
                 context={
                     "metrics": metrics,
                     "analysis": data,
@@ -409,9 +427,6 @@ class HealthCheckAgent:
                     "apps_to_restart": data.get("apps_to_restart", [])
                 }
             )
-        except Exception as e:
-            logger.error(f"Analysis error: {str(e)}")
-            return None
     
     async def _execute_remediation(self, decision: AgentDecision):
         """Execute health remediation autonomously"""
