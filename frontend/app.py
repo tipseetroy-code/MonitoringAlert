@@ -2135,7 +2135,8 @@ def main_app():
         """)
         
         # Monitor agent status from background service
-        agent_url = "http://18.237.102.97:8001/api/agents/ssl"
+        agent_server_url = os.getenv("AGENT_SERVER_URL", "http://localhost:8001")
+        agent_url = f"{agent_server_url}/api/agents/ssl"
         
         col1, col2 = st.columns(2)
         with col1:
@@ -2154,7 +2155,7 @@ def main_app():
         
         with col2:
             st.markdown("**Recent Autonomous Decisions**")
-            decisions_url = "http://18.237.102.97:8001/api/agents/decisions?limit=5"
+            decisions_url = f"{agent_server_url}/api/agents/decisions?limit=5"
             try:
                 response = requests.get(decisions_url, timeout=5)
                 if response.status_code == 200:
