@@ -17,6 +17,38 @@ from google import genai
 
 logger = logging.getLogger(__name__)
 
+# ============== Helper Functions ==============
+def extract_json_from_response(text: str) -> Dict:
+    """Extract JSON from Gemini response (handles markdown wrapping)"""
+    if not text:
+        return {}
+    
+    # Try direct JSON parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract from markdown code blocks
+    import re
+    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to find any JSON object in the text
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(0))
+        except json.JSONDecodeError:
+            pass
+    
+    logger.warning(f"Could not parse JSON from response: {text[:100]}")
+    return {}
+
 # ============== Agent Decision Models ==============
 class ActionType(Enum):
     """Types of autonomous actions agents can take"""
@@ -109,7 +141,7 @@ class SSLCertificateAgent:
                 contents=prompt
             )
             
-            data = json.loads(response.text)
+            data = extract_json_from_response(response.text)
             
             return AgentDecision(
                 agent_name=self.name,
@@ -202,7 +234,7 @@ class VulnerabilityRemediationAgent:
                 contents=prompt
             )
             
-            data = json.loads(response.text)
+            data = extract_json_from_response(response.text)
             
             return AgentDecision(
                 agent_name=self.name,
@@ -287,7 +319,7 @@ class HealthCheckAgent:
                 contents=prompt
             )
             
-            data = json.loads(response.text)
+            data = extract_json_from_response(response.text)
             
             if data.get("status") == "healthy":
                 return None
