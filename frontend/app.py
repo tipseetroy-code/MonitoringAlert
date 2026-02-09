@@ -111,6 +111,7 @@ def agentic_reason_and_decide(result, memory, policy):
     recent = [m for m in memory if m.get("app") == app_name][-3:]
     previous_restart_success = any(m.get("action") == "restart" and m.get("outcome") == "resolved" for m in recent)
 
+    now_local = datetime.now()
     today = now_local.strftime("%Y-%m-%d")
     restarts_today = len([m for m in memory if m.get("app") == app_name and m.get("action") == "restart" and m.get("timestamp", "").startswith(today)])
 
