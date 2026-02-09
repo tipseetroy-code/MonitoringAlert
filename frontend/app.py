@@ -1645,7 +1645,7 @@ def main_app():
                     raw_answer = chatbot_answer_engine(
                         q,
                         st.session_state.ui_state,
-                        st.session_state.vuln_df
+                        st.session_state.get("vuln_df")
                     )
 
                     if raw_answer == "NOT_FOUND" or raw_answer is None:
@@ -1687,7 +1687,7 @@ def main_app():
                     raw_answer = chatbot_answer_engine(
                         user_query,
                         st.session_state.ui_state,
-                        st.session_state.vuln_df
+                        st.session_state.get("vuln_df")
                     )
 
                     # If no matching rule found, fall back to Confluence + Web + LLM
@@ -2065,11 +2065,6 @@ def main_app():
             import subprocess
             result = subprocess.run(['df', '-h'], capture_output=True, text=True)
             st.code(result.stdout)
-
-        if st.button("Create Dummy File (100MB) for Testing Disk Cleanup"):
-            import subprocess
-            result = subprocess.run(['dd', 'if=/dev/zero', 'of=/tmp/dummy_test', 'bs=1M', 'count=100'], capture_output=True, text=True)
-            st.success("Created 100MB dummy file at /tmp/dummy_test. Check disk usage and trigger self-healing if needed.")
 
     # --- SSL Management tab ---
     with tabs[2]:
