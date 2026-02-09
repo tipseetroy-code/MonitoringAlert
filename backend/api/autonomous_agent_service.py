@@ -47,7 +47,7 @@ class AgentDecision:
 class SSLCertificateAgent:
     """Agent: Autonomous SSL Certificate Management"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-pro"):
+    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash"):
         self.client = client
         self.model = model
         self.name = "SSL Certificate Agent"
@@ -141,7 +141,7 @@ class SSLCertificateAgent:
 class VulnerabilityRemediationAgent:
     """Agent: Autonomous Vulnerability Patching"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-pro"):
+    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash"):
         self.client = client
         self.model = model
         self.name = "Vulnerability Remediation Agent"
@@ -231,7 +231,7 @@ class VulnerabilityRemediationAgent:
 class HealthCheckAgent:
     """Agent: Autonomous System Health Monitoring"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-pro"):
+    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash"):
         self.client = client
         self.model = model
         self.name = "Health Check Agent"
@@ -316,7 +316,7 @@ class HealthCheckAgent:
 class ProblemDetectionAgent:
     """Agent: Autonomous Problem Detection & Jira Creation"""
     
-    def __init__(self, client: genai.Client, model: str = "gemini-1.5-pro"):
+    def __init__(self, client: genai.Client, model: str = "gemini-1.5-flash"):
         self.client = client
         self.model = model
         self.name = "Problem Detection Agent"
@@ -388,19 +388,24 @@ class AutonomousAgentService:
         self.running = True
         logger.info("🚀 Starting Autonomous Agent Service...")
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Start each agent in separate thread
+        # Start each agent in separate thread with its own event loop
         for agent_name, agent in self.agents.items():
             thread = threading.Thread(
-                target=lambda a=agent, l=loop: l.run_until_complete(a.monitor()),
+                target=self._run_agent_monitor,
+                args=(agent,),
                 daemon=True,
                 name=f"agent-{agent_name}"
             )
             thread.start()
             self.agent_threads[agent_name] = thread
             logger.info(f"✅ {agent.name} started")
+    
+    def _run_agent_monitor(self, agent):
+        """Run agent monitor in its own event loop (for threading)"""
+        try:
+            asyncio.run(agent.monitor())
+        except Exception as e:
+            logger.error(f"❌ Agent {agent.name} failed: {str(e)}")
     
     def stop(self):
         """Stop all agents"""
