@@ -1311,7 +1311,7 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["lowerlane environment chatbot", "Deployment", "Problems & Jira", "🤖 Agentic Copilot"])
+    tabs = st.tabs(["lowerlane environment chatbot", "Deployment", "Problems & Jira", "🛡️ Vulnerability Remediation", "🤖 Agentic Copilot"])
 
     # --- Deployment tab ---
     with tabs[1]:
@@ -2528,8 +2528,265 @@ def main_app():
             st.success("✅ Problem solved by agent - No Jira ticket created")
             st.rerun()
 
-    # --- Agentic Copilot tab ---
+    # --- Vulnerability Remediation tab ---
     with tabs[3]:
+        st.header("🛡️ Vulnerability Remediation - Agentic Workflow")
+        
+        st.markdown("""
+        **Automated Vulnerability Management Pipeline:**
+        1. 📊 **Download** → Fetch vulnerability details from Tableau
+        2. 🗑️ **Filter** → Remove exempted & LLE vulnerabilities
+        3. 🏷️ **Classify** → Identify type & assign remediation team
+        4. 📧 **Engage** → Auto-create tickets & notifications
+        5. ✅ **Validate** → TVT (Test & Verify) post-patching
+        """)
+        
+        st.divider()
+        
+        # -------- PERCEPTION LAYER: Download from Tableau --------
+        st.subheader("📊 PERCEPTION - Download Vulnerabilities from Tableau")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📥 Sync Tableau Vulnerabilities", key="vuln_sync_tableau", use_container_width=True):
+                st.info("🔄 Fetching vulnerability data from Tableau...")
+                pytime.sleep(0.5)
+                st.success("✅ Downloaded 47 vulnerabilities from Tableau")
+                # Initialize session state for vulnerabilities
+                if "vulnerabilities" not in st.session_state:
+                    st.session_state.vulnerabilities = []
+        
+        with col2:
+            st.metric("Total Vulnerabilities", "47")
+        
+        with col3:
+            st.metric("Last Sync", "2026-02-09 10:30 AM")
+        
+        st.divider()
+        
+        # -------- FILTER: Remove Exempted & LLE --------
+        st.subheader("🗑️ FILTER - Remove Exempted & LLE Vulnerabilities")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Remove Exempted**")
+            if st.button("🚫 Filter Exempted", key="vuln_filter_exempt"):
+                st.info("🔍 Removing exempted vulnerabilities...")
+                pytime.sleep(0.3)
+                st.success("✅ Removed 5 exempted vulnerabilities | Remaining: 42")
+        
+        with col2:
+            st.markdown("**Filter LLE Vulnerabilities**")
+            if st.button("🔽 Filter LLE (Low/Low-Exploitable)", key="vuln_filter_lle"):
+                st.info("🔍 Removing Low/Low-Exploitable vulnerabilities...")
+                pytime.sleep(0.3)
+                st.success("✅ Removed 8 LLE vulnerabilities | Critical Remaining: 34")
+        
+        st.divider()
+        
+        # -------- CLASSIFICATION & TEAM ASSIGNMENT --------
+        st.subheader("🏷️ CLASSIFY - Vulnerability Type & Team Assignment")
+        
+        # Initialize session state for classifications
+        if "vuln_classifications" not in st.session_state:
+            st.session_state.vuln_classifications = {
+                "Microsoft/Windows": {
+                    "count": 12,
+                    "team": "MAPS Team",
+                    "action": "Patching Request",
+                    "followup": "TVT Post-Patching",
+                    "channel": "Jira"
+                },
+                "Middleware": {
+                    "count": 15,
+                    "team": "Middleware Team",
+                    "action": "Jira Request",
+                    "followup": "TVT Post-Patching",
+                    "channel": "Jira"
+                },
+                "Splunk": {
+                    "count": 7,
+                    "team": "BladeLogic Team",
+                    "action": "SDInfo Request",
+                    "followup": "BladeLogic Version Update",
+                    "channel": "SDInfo"
+                }
+            }
+        
+        # Display classification matrix
+        classification_data = []
+        for vuln_type, details in st.session_state.vuln_classifications.items():
+            classification_data.append({
+                "Vulnerability Type": vuln_type,
+                "Count": details["count"],
+                "Remediation Team": details["team"],
+                "Action Type": details["action"],
+                "Notification": details["channel"]
+            })
+        
+        st.dataframe(pd.DataFrame(classification_data), use_container_width=True, hide_index=True)
+        
+        st.divider()
+        
+        # -------- ENGAGEMENT: Create Tickets & Notifications --------
+        st.subheader("📧 ENGAGE - Auto-Create Tickets & Notifications")
+        
+        agent_tabs = st.tabs(["🔧 MAPS Team (Microsoft/Windows)", "⚙️ Middleware Team", "🔐 Splunk/BladeLogic Team"])
+        
+        # ---- MAPS Team Tab ----
+        with agent_tabs[0]:
+            st.markdown("**Microsoft Edge, Windows Server Security Vulnerabilities**")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.info("📋 MAPS Team engagement for Windows/Microsoft stack patching")
+            with col2:
+                if st.button("📤 Engage MAPS", key="engage_maps"):
+                    st.success("✅ MAPS Team engaged - Jira ticket created: MAPS-2847")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Vulnerabilities", "12")
+            with col2:
+                st.metric("Ticket ID", "MAPS-2847")
+            with col3:
+                st.metric("Status", "In Progress")
+            
+            st.divider()
+            st.subheader("📝 MAPS Team Actions:")
+            
+            steps = [
+                "Step 1: Submit patching request via Jira",
+                "Step 2: Validate patch compatibility",
+                "Step 3: Deploy patches to non-prod first",
+                "Step 4: Execute TVT (Test & Verify) validation",
+                "Step 5: Deploy to production if TVT passes",
+                "Step 6: Verify patch status in Tableau"
+            ]
+            
+            if st.button("▶️ Start MAPS Remediation", key="start_maps_remediation"):
+                for i, step in enumerate(steps):
+                    st.info(f"{step}")
+                    pytime.sleep(0.2)
+                st.success("✅ MAPS remediation workflow completed")
+        
+        # ---- Middleware Team Tab ----
+        with agent_tabs[1]:
+            st.markdown("**Middleware Vulnerabilities (JBoss, Tomcat, etc.)**")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.info("📋 Middleware Team engagement via Jira for application server updates")
+            with col2:
+                if st.button("📤 Engage Middleware", key="engage_middleware"):
+                    st.success("✅ Middleware Team engaged - Jira ticket created: MIDWARE-5142")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Vulnerabilities", "15")
+            with col2:
+                st.metric("Ticket ID", "MIDWARE-5142")
+            with col3:
+                st.metric("Status", "In Progress")
+            
+            st.divider()
+            st.subheader("📝 Middleware Team Actions:")
+            
+            steps = [
+                "Step 1: Review vulnerability impact on middleware components",
+                "Step 2: Plan version upgrade/patch schedule",
+                "Step 3: Create test environment with latest versions",
+                "Step 4: Execute TVT (Test & Verify) on test environment",
+                "Step 5: Roll out to production in maintenance window",
+                "Step 6: Validate application functionality post-update",
+                "Step 7: Update vulnerability status in Tableau"
+            ]
+            
+            if st.button("▶️ Start Middleware Remediation", key="start_middleware_remediation"):
+                for i, step in enumerate(steps):
+                    st.info(f"{step}")
+                    pytime.sleep(0.2)
+                st.success("✅ Middleware remediation workflow completed")
+        
+        # ---- Splunk/BladeLogic Team Tab ----
+        with agent_tabs[2]:
+            st.markdown("**Splunk & BladeLogic Vulnerabilities**")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.info("📋 BladeLogic Team engagement via SDInfo for version updates")
+            with col2:
+                if st.button("📤 Engage BladeLogic", key="engage_bladelogic"):
+                    st.success("✅ BladeLogic Team engaged - SDInfo request created: SDINFO-7823")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Vulnerabilities", "7")
+            with col2:
+                st.metric("SDInfo Ticket", "SDINFO-7823")
+            with col3:
+                st.metric("Status", "In Progress")
+            
+            st.divider()
+            st.subheader("📝 BladeLogic Team Actions:")
+            
+            steps = [
+                "Step 1: Submit SDInfo request for latest BladeLogic installation",
+                "Step 2: Prepare rollback plan for current version",
+                "Step 3: Schedule installation in maintenance window",
+                "Step 4: Execute TVT validation post-installation",
+                "Step 5: Monitor Splunk/BladeLogic for stability",
+                "Step 6: Confirm vulnerability remediation in Tableau"
+            ]
+            
+            if st.button("▶️ Start BladeLogic Remediation", key="start_bladelogic_remediation"):
+                for i, step in enumerate(steps):
+                    st.info(f"{step}")
+                    pytime.sleep(0.2)
+                st.success("✅ BladeLogic remediation workflow completed")
+        
+        st.divider()
+        
+        # -------- VALIDATION: TVT Post-Patching --------
+        st.subheader("✅ VALIDATE - TVT (Test & Verify) Post-Patching")
+        
+        validation_col1, validation_col2 = st.columns(2)
+        
+        with validation_col1:
+            st.markdown("**Run TVT Validation**")
+            if st.button("🧪 Execute TVT Tests", key="run_tvt_tests"):
+                st.info("🔍 Running Test & Verify suite...")
+                pytime.sleep(0.3)
+                st.success("✅ TVT Tests Passed - All vulnerabilities remediated")
+                st.info("📊 CVE Status: Verified as patched in CVSS database")
+        
+        with validation_col2:
+            st.markdown("**Update Tableau**")
+            if st.button("📤 Publish Results to Tableau", key="publish_tvt_tableau"):
+                st.info("📡 Publishing TVT results to Tableau...")
+                pytime.sleep(0.3)
+                st.success("✅ Tableau updated - 34 vulnerabilities marked as REMEDIATED")
+        
+        st.divider()
+        
+        # -------- SUMMARY --------
+        st.subheader("📊 Remediation Summary")
+        
+        summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+        
+        with summary_col1:
+            st.metric("Downloaded", "47")
+        with summary_col2:
+            st.metric("Filtered Out", "13")
+        with summary_col3:
+            st.metric("In Remediation", "34")
+        with summary_col4:
+            st.metric("TVT Status", "✅ Passed")
+
+    # --- Agentic Copilot tab ---
+    with tabs[4]:
         st.header("🤖 Agentic SRE Copilot - Live on EC2")
         
         # Create subtabs for different views
