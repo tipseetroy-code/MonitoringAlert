@@ -2419,137 +2419,179 @@ def main_app():
     with tabs[4]:
         st.header("🤖 Agentic SRE Copilot - Live on EC2")
         
-        st.markdown("""
-        **Autonomous Incident Management System**  
-        Deployed on EC2: `18.237.102.97`  
-        Running 24/7 monitoring every 30 seconds
-        """)
+        # Create subtabs for different views
+        agentic_subtabs = st.tabs(["📊 Overview", "🔔 Notifications", "📈 Statistics"])
         
-        st.divider()
+        # Notifications Subtab
+        with agentic_subtabs[1]:
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+                from frontend.components.notifications_viewer import render_notifications_view
+                
+                # Use production DB path from EC2
+                db_path = "/var/lib/sre-agent/sre_audit.db"
+                
+                # For local dev, fall back to temp path
+                if not os.path.exists(db_path):
+                    db_path = "/tmp/sre_audit.db"
+                
+                render_notifications_view(db_path)
+                
+            except Exception as e:
+                st.error(f"Unable to load notifications: {e}")
+                st.info("Notifications are stored in the database at /var/lib/sre-agent/sre_audit.db on EC2")
         
-        # Service Status
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Service Status", "🟢 Active")
-        with col2:
-            st.metric("Location", "EC2 Production")
-        with col3:
-            st.metric("Uptime", "Live")
-        
-        st.divider()
-        
-        # Agentic Loop Visualization
-        st.subheader("🔄 Agentic Loop (Every 30s)")
-        st.markdown("""
-        ```
-        1. PERCEIVE  → Collect health signals (HTTP, logs, metrics, systemd)
-        2. REASON    → LLM analyzes with Gemini AI
-        3. PLAN      → Policy gates (approval, rate limits, change windows)
-        4. ACT       → Safe execution (pre-checks, rollback)
-        5. REFLECT   → Calculate MTTR, analyze outcomes
-        6. LEARN     → Update memory, improve patterns
-        ```
-        """)
-        
-        st.divider()
-        
-        # Real-time Logs from EC2
-        st.subheader("📊 Live Agent Activity")
-        
-        if st.button("🔄 Refresh Logs from EC2"):
-            with st.spinner("Fetching logs from EC2..."):
-                pytime.sleep(1)
-                st.info("✅ Logs refreshed (manual SSH required for real-time logs)")
-        
-        st.markdown("""
-        **SSH to view live logs:**
-        ```bash
-        ssh -i "Team Meenakshi.pem" ubuntu@18.237.102.97
-        sudo tail -f /var/log/sre-agent/agentic.log
-        ```
-        """)
-        
-        st.divider()
-        
-        # Quick Stats
-        st.subheader("📈 Agent Statistics")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Apps Monitored", "3")
-        with col2:
-            st.metric("Signals/Cycle", "15")
-        with col3:
-            st.metric("Incidents Detected", "Multiple")
-        with col4:
-            st.metric("Auto-Actions", "Policy Blocked (Safe)")
-        
-        st.divider()
-        
-        # Integration Status
-        st.subheader("🔌 Integration Status")
-        
-        integration_status = {
-            "Google Gemini API": {"status": "⚠️ Quota Exceeded", "details": "Free tier limit hit - using fallback reasoning"},
-            "JIRA Integration": {"status": "✅ Connected", "details": "https://teammeenakshi.atlassian.net (KAN project)"},
-            "SMTP Notifications": {"status": "⏸️ Not Configured", "details": "Optional - can be enabled"},
-            "Audit Database": {"status": "✅ Active", "details": "/var/lib/sre-agent/sre_audit.db"},
-            "Incident Memory": {"status": "✅ Recording", "details": "/var/lib/sre-agent/incident_memory.json"}
-        }
-        
-        for name, info in integration_status.items():
-            with st.expander(f"{name} - {info['status']}"):
-                st.write(info['details'])
-        
-        st.divider()
-        
-        # Policy Configuration
-        st.subheader("🛡️ Safety Policies")
-        
-        st.markdown("""
-        **Current Policy Settings:**
-        - ✅ Auto-restart: Enabled (with approval gates)
-        - 🔒 Max restarts/day: 5 per app
-        - ⏰ Change window: 9 AM - 5 PM UTC
-        - 🚨 Escalation threshold: 3 incidents in 60 min
-        - ✋ Requires approval: CRITICAL incidents only
-        """)
-        
-        st.divider()
-        
-        # SSH Commands Section
-        st.subheader("🖥️ Management Commands")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        # Overview Subtab
+        with agentic_subtabs[0]:
             st.markdown("""
-            **Service Control:**
+            **Autonomous Incident Management System**  
+            Deployed on EC2: `18.237.102.97`  
+            Running 24/7 monitoring every 30 seconds
+            """)
+            
+            st.divider()
+            st.divider()
+            
+            # Service Status
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Service Status", "🟢 Active")
+            with col2:
+                st.metric("Location", "EC2 Production")
+            with col3:
+                st.metric("Uptime", "Live")
+            
+            st.divider()
+            
+            # Agentic Loop Visualization
+            st.subheader("🔄 Agentic Loop (Every 30s)")
+            st.markdown("""
+            ```
+            1. PERCEIVE  → Collect health signals (HTTP, logs, metrics, systemd)
+            2. REASON    → LLM analyzes with Gemini AI
+            3. PLAN      → Policy gates (approval, rate limits, change windows)
+            4. ACT       → Safe execution (pre-checks, rollback)
+            5. REFLECT   → Calculate MTTR, analyze outcomes
+            6. LEARN     → Update memory, improve patterns
+            ```
+            """)
+            
+            st.divider()
+            
+            # Real-time Logs from EC2
+            st.subheader("📊 Live Agent Activity")
+            
+            if st.button("🔄 Refresh Logs from EC2"):
+                with st.spinner("Fetching logs from EC2..."):
+                    pytime.sleep(1)
+                    st.info("✅ Logs refreshed (manual SSH required for real-time logs)")
+            
+            st.markdown("""
+            **SSH to view live logs:**
             ```bash
-            # Check status
-            systemctl status sre-agent
+            ssh -i "Team Meenakshi.pem" ubuntu@18.237.102.97
+            sudo tail -f /var/log/sre-agent/agentic.log
+            ```
+            """)
             
-            # View live logs
-            tail -f /var/log/sre-agent/agentic.log
+            st.divider()
             
-            # Restart service
-            systemctl restart sre-agent
+            # Integration Status
+            st.subheader("🔌 Integration Status")
+            
+            integration_status = {
+                "Google Gemini API": {"status": "⚠️ Quota Exceeded", "details": "Free tier limit hit - using fallback reasoning"},
+                "JIRA Integration": {"status": "✅ Connected", "details": "https://teammeenakshi.atlassian.net (KAN project)"},
+                "Notifications": {"status": "✅ Database Logging", "details": "All notifications stored in database and viewable in Notifications tab"},
+                "Audit Database": {"status": "✅ Active", "details": "/var/lib/sre-agent/sre_audit.db"},
+                "Incident Memory": {"status": "✅ Recording", "details": "/var/lib/sre-agent/incident_memory.json"}
+            }
+            
+            for name, info in integration_status.items():
+                with st.expander(f"{name} - {info['status']}"):
+                    st.write(info['details'])
+            
+            st.divider()
+            
+            # Policy Configuration
+            st.subheader("🛡️ Safety Policies")
+            
+            st.markdown("""
+            **Current Policy Settings:**
+            - ✅ Auto-restart: Enabled (with approval gates)
+            - 🔒 Max restarts/day: 5 per app
+            - ⏰ Change window: 9 AM - 5 PM UTC
+            - 🚨 Escalation threshold: 3 incidents in 60 min
+            - ✋ Requires approval: CRITICAL incidents only
+            """)
+            
+            st.divider()
+            
+            # SSH Commands Section
+            st.subheader("🖥️ Management Commands")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **Service Control:**
+                ```bash
+                # Check status
+                systemctl status sre-agent
+                
+                # View live logs
+                tail -f /var/log/sre-agent/agentic.log
+                
+                # Restart service
+                systemctl restart sre-agent
+                ```
+                """)
+            
+            with col2:
+                st.markdown("""
+                **Query Data:**
+                ```bash
+                # View incident memory
+                cat /var/lib/sre-agent/incident_memory.json
+                
+                # Query audit database
+                sqlite3 /var/lib/sre-agent/sre_audit.db
+                
+                # View notifications
+                sqlite3 /var/lib/sre-agent/sre_audit.db \
+                  "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 10"
+                
+                # Check performance
+            grep "RESOLVED" /var/log/sre-agent/agentic.log
             ```
             """)
         
-        with col2:
+        # Statistics Subtab
+        with agentic_subtabs[2]:
+            st.subheader("📈 Agent Statistics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Apps Monitored", "3")
+            with col2:
+                st.metric("Signals/Cycle", "15")
+            with col3:
+                st.metric("Incidents Detected", "Multiple")
+            with col4:
+                st.metric("Auto-Actions", "Policy Blocked (Safe)")
+            
+            st.divider()
+            
             st.markdown("""
-            **Query Data:**
-            ```bash
-            # View incident memory
-            cat /var/lib/sre-agent/incident_memory.json
+            **Real-time metrics and performance indicators will be displayed here.**
             
-            # Query audit database
-            sqlite3 /var/lib/sre-agent/sre_audit.db
-            
-            # Check performance
-            grep "RESOLVED" /var/log/sre-agent/agentic.log
-            ```
+            This includes:
+            - Incident detection rate
+            - Mean Time To Resolution (MTTR)
+            - Action success rate
+            - Policy enforcement statistics
+            - Memory and learning metrics
             """)
         
         st.divider()

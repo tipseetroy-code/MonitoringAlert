@@ -74,6 +74,7 @@ class SREAgentOrchestrator:
             self.jira_handler = JiraHandler(jira_client)
 
         # Notifications
+        audit_db_path = config.get("audit_db_path", "/tmp/sre_audit.db")
         self.notification_handler = None
         if config.get("smtp"):
             smtp_config = config["smtp"]
@@ -86,14 +87,21 @@ class SREAgentOrchestrator:
                 password=smtp_config.get("password"),
                 use_tls=smtp_config.get("use_tls", True),
             )
-            self.notification_handler = NotificationHandler(notifier)
+            self.notification_handler = NotificationHandler(notifier, db_path=audit_db_path)
+            self.notification_handler.set_recipients(
+                oncall=config.get("oncall_emails", []),
+                daily_report=config.get("daily_report_emails", []),
+            )
+        else:
+            # Even without SMTP, create notification handler for database logging
+            self.notification_handler = NotificationHandler(db_path=audit_db_path)
             self.notification_handler.set_recipients(
                 oncall=config.get("oncall_emails", []),
                 daily_report=config.get("daily_report_emails", []),
             )
 
         # Audit
-        self.audit_logger = AuditLogger(config.get("audit_db_path", "/tmp/sre_audit.db"))
+        self.audit_logger = AuditLogger(audit_db_path)
         self.compliance_reporter = ComplianceReporter(self.audit_logger)
         self.performance_metrics = PerformanceMetrics(self.audit_logger)
         self.pir_generator = PostIncidentReview(self.audit_logger)

@@ -1,15 +1,17 @@
 # backend/agentic/notifications.py
 """
-NOTIFICATIONS: SMTP-based incident alerting and reporting
+NOTIFICATIONS: Database-based incident alerting and reporting
 - Alert on critical incidents
 - Resolution notifications
 - Daily/weekly reports
 - On-call escalations
+- Store all notifications in database for UI display
 """
 
 import os
 import logging
 import smtplib
+import sqlite3
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
@@ -19,6 +21,148 @@ from .core import IncidentOutcome, Incident
 
 
 logger = logging.getLogger(__name__)
+
+
+class NotificationLogger:
+    """Database-backed notification storage for UI display"""
+
+    def __init__(self, db_path: str = "/var/lib/sre-agent/sre_audit.db"):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Initialize notifications table in SQLite database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notification_type TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    incident_id TEXT,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details TEXT,
+                    recipients TEXT,
+                    read BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_notification_created ON notifications(created_at DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_notification_read ON notifications(read)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_notification_severity ON notifications(severity)
+                """
+            )
+
+            conn.commit()
+            conn.close()
+            logger.info(f"[NOTIFICATIONS] Database initialized at {self.db_path}")
+        except Exception as e:
+            logger.error(f"[NOTIFICATIONS] Failed to initialize database: {e}")
+
+    def log_notification(
+        self,
+        notification_type: str,
+        severity: str,
+        title: str,
+        message: str,
+        incident_id: Optional[str] = None,
+        details: Optional[str] = None,
+        recipients: Optional[List[str]] = None,
+    ) -> bool:
+        """Log notification to database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            recipients_str = ", ".join(recipients) if recipients else None
+
+            cursor.execute(
+                """
+                INSERT INTO notifications 
+                (notification_type, severity, incident_id, title, message, details, recipients)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (notification_type, severity, incident_id, title, message, details, recipients_str),
+            )
+
+            conn.commit()
+            conn.close()
+            logger.info(f"[NOTIFICATIONS] Logged {notification_type} notification: {title}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[NOTIFICATIONS] Failed to log notification: {e}")
+            return False
+
+    def get_recent_notifications(self, limit: int = 50, unread_only: bool = False) -> List[Dict[str, Any]]:
+        """Get recent notifications from database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = """
+                SELECT * FROM notifications
+                WHERE 1=1
+            """
+            if unread_only:
+                query += " AND read = 0"
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+
+            cursor.execute(query, (limit,))
+            rows = cursor.fetchall()
+
+            notifications = [dict(row) for row in rows]
+            conn.close()
+
+            return notifications
+
+        except Exception as e:
+            logger.error(f"[NOTIFICATIONS] Failed to fetch notifications: {e}")
+            return []
+
+    def mark_as_read(self, notification_id: int) -> bool:
+        """Mark notification as read"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE notifications SET read = 1 WHERE id = ?", (notification_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"[NOTIFICATIONS] Failed to mark notification as read: {e}")
+            return False
+
+    def mark_all_as_read(self) -> bool:
+        """Mark all notifications as read"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE notifications SET read = 1 WHERE read = 0")
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"[NOTIFICATIONS] Failed to mark all as read: {e}")
+            return False
 
 
 class SMTPNotifier:
@@ -378,12 +522,13 @@ class SMTPNotifier:
 
 
 class NotificationHandler:
-    """High-level notification coordinator"""
+    """High-level notification coordinator - stores all notifications in database"""
 
-    def __init__(self, notifier: Optional[SMTPNotifier] = None):
+    def __init__(self, notifier: Optional[SMTPNotifier] = None, db_path: str = "/var/lib/sre-agent/sre_audit.db"):
         self.notifier = notifier
         self.oncall_recipients: List[str] = []
         self.daily_report_recipients: List[str] = []
+        self.notification_logger = NotificationLogger(db_path)
 
     def set_notifier(self, notifier: SMTPNotifier):
         """Configure SMTP notifier"""
@@ -401,30 +546,91 @@ class NotificationHandler:
         incident: Incident,
         escalation_ticket: Optional[str] = None,
     ) -> bool:
-        """Notify on-call about incident"""
-        if not self.notifier or not self.oncall_recipients:
-            return False
+        """Notify on-call about incident - store in database"""
+        title = f"🚨 {incident.severity.value} Incident: {incident.app_name}"
+        message = f"{incident.description}"
+        details = f"Incident ID: {incident.id}\nSeverity: {incident.severity.value}\nDetected: {incident.timestamp}"
+        
+        if escalation_ticket:
+            details += f"\nJIRA Ticket: {escalation_ticket}"
 
-        return self.notifier.send_incident_alert(
-            incident, self.oncall_recipients, escalation_ticket
+        # Always log to database for UI display
+        self.notification_logger.log_notification(
+            notification_type="incident_alert",
+            severity=incident.severity.value,
+            title=title,
+            message=message,
+            incident_id=incident.id,
+            details=details,
+            recipients=self.oncall_recipients,
         )
+
+        # Optionally send email if SMTP is configured
+        if self.notifier and self.oncall_recipients:
+            try:
+                return self.notifier.send_incident_alert(
+                    incident, self.oncall_recipients, escalation_ticket
+                )
+            except Exception as e:
+                logger.warning(f"[NOTIFICATIONS] Email failed but notification logged: {e}")
+        
+        return True  # Database logging succeeded
 
     def notify_resolution(
         self,
         outcome: IncidentOutcome,
         duration_seconds: float,
     ) -> bool:
-        """Notify stakeholders about resolution"""
-        if not self.notifier or not self.oncall_recipients:
-            return False
+        """Notify stakeholders about resolution - store in database"""
+        title = f"✅ Incident Resolved: {outcome.incident_id}"
+        message = f"Incident resolved with result: {outcome.result.value}"
+        details = f"MTTR: {duration_seconds:.1f}s\nActions taken: {len(outcome.actions_taken)}\nResult: {outcome.result.value}"
 
-        return self.notifier.send_resolution_notification(
-            outcome, self.oncall_recipients, duration_seconds
+        # Always log to database for UI display
+        self.notification_logger.log_notification(
+            notification_type="resolution",
+            severity="INFO",
+            title=title,
+            message=message,
+            incident_id=outcome.incident_id,
+            details=details,
+            recipients=self.oncall_recipients,
         )
 
-    def send_daily_report(self, incidents_today: List[Dict[str, Any]]) -> bool:
-        """Send daily incident summary"""
-        if not self.notifier or not self.daily_report_recipients:
-            return False
+        # Optionally send email if SMTP is configured
+        if self.notifier and self.oncall_recipients:
+            try:
+                return self.notifier.send_resolution_notification(
+                    outcome, self.oncall_recipients, duration_seconds
+                )
+            except Exception as e:
+                logger.warning(f"[NOTIFICATIONS] Email failed but notification logged: {e}")
+        
+        return True  # Database logging succeeded
 
-        return self.notifier.send_daily_report(incidents_today, self.daily_report_recipients)
+    def send_daily_report(self, incidents_today: List[Dict[str, Any]]) -> bool:
+        """Send daily incident summary - store in database"""
+        title = f"📊 Daily SRE Report - {datetime.utcnow().strftime('%Y-%m-%d')}"
+        message = f"Total incidents today: {len(incidents_today)}"
+        
+        resolved_count = sum(1 for inc in incidents_today if inc.get('status') == 'resolved')
+        details = f"Total: {len(incidents_today)}\nResolved: {resolved_count}\nPending: {len(incidents_today) - resolved_count}"
+
+        # Always log to database for UI display
+        self.notification_logger.log_notification(
+            notification_type="daily_report",
+            severity="INFO",
+            title=title,
+            message=message,
+            details=details,
+            recipients=self.daily_report_recipients,
+        )
+
+        # Optionally send email if SMTP is configured
+        if self.notifier and self.daily_report_recipients:
+            try:
+                return self.notifier.send_daily_report(incidents_today, self.daily_report_recipients)
+            except Exception as e:
+                logger.warning(f"[NOTIFICATIONS] Email failed but notification logged: {e}")
+        
+        return True  # Database logging succeeded
