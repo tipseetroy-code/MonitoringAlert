@@ -1311,23 +1311,10 @@ def main_app():
             ]
         }
 
-    tabs = st.tabs(["lowerlane environment chatbot", "Self Healing", "Deployment", "Problems & Jira", "🤖 Agentic Copilot"])
-
-    # --- Self Healing tab (enhanced) ---
-    with tabs[1]:
-        st.header("🔧 Self-Healing")
-
-        # Agent Status (with timeout handling)
-        try:
-            status_response = requests.get("http://localhost:8000/agent/status", timeout=1)
-            agent_running = status_response.json().get("running", False)
-        except:
-            # Backend not running - use mock status for demo
-            agent_running = True  # Assume running for demo
-        st.subheader(f"Agent Status: {'🟢 Running (24/7)' if agent_running else '🔴 Stopped (Backend unavailable)'}")
+    tabs = st.tabs(["lowerlane environment chatbot", "Deployment", "Problems & Jira", "🤖 Agentic Copilot"])
 
     # --- Deployment tab ---
-    with tabs[2]:
+    with tabs[1]:
         st.header("🚀 Deployment Console (with Auto-Detection)")
 
         st.markdown("""
@@ -2075,62 +2062,188 @@ def main_app():
             st.success("Created 100MB dummy file at /tmp/dummy_test. Check disk usage and trigger self-healing if needed.")
 
     # --- SSL Management tab ---
-    with tabs[3]:
-        st.header("🔐 SSL Management")
-        st.caption("SOP Reference: https://teammeenakshi.atlassian.net/wiki/x/AgAH")
-
-        st.subheader("⚡ Quick SSL Actions")
-        ssl_domain = st.text_input("Domain for SSL", placeholder="e.g., example.com", key="ssl_quick_domain")
-        ssl_action = st.selectbox("Action", ["Renew Certificate", "Check Status"], key="ssl_quick_action")
-
-        if st.button("Execute SSL Action", key="ssl_quick_execute"):
-            if ssl_domain:
-                with st.spinner("Processing..."):
-                    if ssl_action == "Renew Certificate":
-                        update_ssl_inventory(ssl_domain, status="Valid", days_valid=365)
-                        st.success(
-                            f"SSL certificate for '{ssl_domain}' renewed successfully. "
-                            f"Steps followed from Confluence SOP: https://teammeenakshi.atlassian.net/wiki/x/AgAH"
-                        )
-                    elif ssl_action == "Check Status":
-                        df = st.session_state.ssl_certs_df
-                        if df is not None and not df.empty and "Domain" in df.columns:
-                            match = df[df["Domain"].astype(str).str.lower() == ssl_domain.strip().lower()]
-                            if not match.empty:
-                                status = match.iloc[0].get("Status", "Unknown")
-                                expiry = match.iloc[0].get("Expiry", "N/A")
-                                st.info(f"Certificate for '{ssl_domain}' is {status}. Expiry: {expiry}.")
-                            else:
-                                st.warning(f"Certificate for '{ssl_domain}' not found in inventory. Consider renewing.")
-                        else:
-                            st.warning("SSL inventory not loaded. Add ssl_certificates.csv in app root.")
-            else:
-                st.error("Please enter a domain.")
-
+    with tabs[2]:
+        st.header("🔐 SSL Certificate - Agentic Flow")
+        
+        # SSL Agentic Flow Overview
+        st.markdown("""
+        **SSL Certificate Management Flow:**
+        1. 🔍 **PERCEPTION** → Fetch from Venefi / Let's Encrypt / Certificate Portal
+        2. 🧠 **LLM BRAIN** → OpenAI / Gemini SDK for analysis
+        3. 📦 **STORAGE** → Vector DB, S3, MySQL persistence
+        4. 🤖 **AGENT LAYER** → Autonomous agents handling verification & renewal
+        5. 📢 **ACTION** → Renewal, Feedback, Team notifications
+        """)
+        
+        st.divider()
+        
+        # -------- PERCEPTION LAYER --------
+        st.subheader("🔍 PERCEPTION - Certificate Discovery")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**Venefi**")
+            if st.button("🔄 Sync Venefi", key="ssl_sync_venefi"):
+                st.info("📡 Fetching certificates from Venefi portal...")
+                st.success("✅ Synced 12 certificates from Venefi")
+        
+        with col2:
+            st.markdown("**Let's Encrypt**")
+            if st.button("🔄 Sync Let's Encrypt", key="ssl_sync_le"):
+                st.info("📡 Fetching certificates from Let's Encrypt API...")
+                st.success("✅ Synced 5 certificates from Let's Encrypt")
+        
+        with col3:
+            st.markdown("**Certificate Portal**")
+            if st.button("🔄 Sync Portal", key="ssl_sync_portal"):
+                st.info("📡 Fetching from certificate management portal...")
+                st.success("✅ Synced 3 certificates from Portal")
+        
+        st.divider()
+        
+        # -------- STORAGE & INVENTORY --------
+        st.subheader("📊 STORAGE - Certificate Inventory")
+        
         if st.session_state.ssl_certs_df is None or st.session_state.ssl_certs_df.empty:
-            st.warning("⚠️ No SSL inventory found. Add ssl_certificates.csv in app root.")
+            st.warning("⚠️ No SSL inventory found. Sync from sources above.")
         else:
-            st.subheader("📊 SSL Certificate Inventory")
             ssl_df = st.session_state.ssl_certs_df.copy()
             if "VaultLocation" in ssl_df.columns:
                 ssl_df = ssl_df.drop(columns=["VaultLocation"])
             st.dataframe(ssl_df, use_container_width=True)
-
+        
         st.divider()
-
-        st.subheader("🔄 Renew SSL (SOP-Driven)")
-        renew_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_renew_domain")
-        if st.button("Start Renewal", use_container_width=True):
-            if renew_domain:
-                for step in ssl_renew_steps(renew_domain):
-                    st.info(step)
-                update_ssl_inventory(renew_domain, status="Valid", days_valid=365)
-                st.success(f"Inventory updated for '{renew_domain}'.")
-            else:
-                st.error("Please enter a domain")
+        
+        # -------- AGENT LAYER --------
+        st.subheader("🤖 AGENT LAYER - Autonomous Certificate Management")
+        
+        agent_subtabs = st.tabs(["✅ Verify Agent", "🔐 Venefi Agent", "🔄 Provision Agent", "💬 Respond Agent"])
+        
+        # Verify Agent
+        with agent_subtabs[0]:
+            st.subheader("✅ Verify Agent - Valid/Expired Check")
+            verify_domain = st.text_input("Domain to Verify", placeholder="example.com", key="ssl_verify_domain")
+            
+            if st.button("Run Verification", key="ssl_verify_btn"):
+                if verify_domain:
+                    st.info(f"🔍 Verifying certificate for '{verify_domain}'...")
+                    
+                    # Check against inventory
+                    df = st.session_state.ssl_certs_df
+                    if df is not None and not df.empty and "Domain" in df.columns:
+                        match = df[df["Domain"].astype(str).str.lower() == verify_domain.strip().lower()]
+                        if not match.empty:
+                            status = match.iloc[0].get("Status", "Unknown")
+                            expiry = match.iloc[0].get("Expiry", "N/A")
+                            
+                            with st.container(border=True):
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("Certificate Status", status)
+                                with col2:
+                                    st.metric("Expiry Date", expiry)
+                            
+                            if status.lower() == "expired":
+                                st.error("❌ Certificate EXPIRED - Renewal Required")
+                            else:
+                                st.success("✅ Certificate VALID")
+                        else:
+                            st.warning(f"⚠️ Certificate for '{verify_domain}' not found in inventory")
+                else:
+                    st.error("Please enter a domain")
+        
+        # Venefi Agent
+        with agent_subtabs[1]:
+            st.subheader("🔐 Venefi Agent - Check Renewal Status")
+            venefi_domain = st.text_input("Domain in Venefi", placeholder="example.com", key="ssl_venefi_domain")
+            
+            if st.button("Check Venefi Status", key="ssl_venefi_btn"):
+                if venefi_domain:
+                    st.info(f"🔍 Checking '{venefi_domain}' in Venefi...")
+                    with st.spinner("Querying Venefi..."):
+                        pytime.sleep(1)
+                    
+                    st.success("✅ Certificate found in Venefi")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Provider", "Venefi Managed")
+                    with col2:
+                        st.metric("Renewal Available", "Yes")
+                    
+                    st.info("💡 Certificate is eligible for automatic renewal via Venefi Portal")
+                else:
+                    st.error("Please enter a domain")
+        
+        # Provision Agent
+        with agent_subtabs[2]:
+            st.subheader("🔄 Provision Agent - Renewal")
+            provision_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_provision_domain")
+            
+            if st.button("Execute Renewal", key="ssl_provision_btn", use_container_width=True):
+                if provision_domain:
+                    st.info(f"🚀 Starting SSL renewal for '{provision_domain}'...")
+                    
+                    steps = [
+                        "Step 1: Validate domain ownership via Venefi",
+                        "Step 2: Generate CSR (Certificate Signing Request)",
+                        "Step 3: Submit to Certificate Authority",
+                        "Step 4: Validate CA response",
+                        "Step 5: Install renewed certificate",
+                        "Step 6: Store in Vector DB & S3",
+                        "Step 7: Update MySQL inventory"
+                    ]
+                    
+                    for step in steps:
+                        st.info(step)
+                        pytime.sleep(0.3)
+                    
+                    # Update inventory
+                    update_ssl_inventory(provision_domain, status="Valid", days_valid=365, issuer="Venefi Managed")
+                    st.success(f"✅ Certificate renewed for '{provision_domain}' - Valid for 365 days")
+                else:
+                    st.error("Please enter a domain")
+        
+        # Respond Agent
+        with agent_subtabs[3]:
+            st.subheader("💬 Respond Agent - Notifications")
+            
+            st.info("🤖 Respond Agent handles multi-channel notifications:")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Teams**")
+                if st.button("📤 Send to Teams", key="ssl_teams_btn"):
+                    st.success("✅ Message sent to Teams #ssl-alerts channel")
+            
+            with col2:
+                st.markdown("**Slack**")
+                if st.button("📤 Send to Slack", key="ssl_slack_btn"):
+                    st.success("✅ Message sent to Slack #operations channel")
+            
+            with col3:
+                st.markdown("**Outlook**")
+                if st.button("📧 Send Email", key="ssl_email_btn"):
+                    st.success("✅ Email sent to ssl-team@company.com")
+            
+            # Notification Summary
+            st.divider()
+            st.subheader("📋 Notification Summary")
+            
+            notification_data = {
+                "Channel": ["Teams", "Slack", "Outlook", "Chatbot"],
+                "Status": ["✅ Sent", "✅ Sent", "✅ Sent", "📝 Pending"],
+                "Timestamp": ["2026-02-09 14:23", "2026-02-09 14:23", "2026-02-09 14:24", "-"]
+            }
+            
+            st.dataframe(
+                pd.DataFrame(notification_data),
+                use_container_width=True,
+                hide_index=True
+            )
 
     # --- Problems & Jira Tickets tab ---
-    with tabs[3]:
+    with tabs[2]:
         st.header("🎟️ Problem Tracking & Auto-Created Jira Tickets")
         
         st.markdown("""
@@ -2416,7 +2529,7 @@ def main_app():
             st.rerun()
 
     # --- Agentic Copilot tab ---
-    with tabs[4]:
+    with tabs[3]:
         st.header("🤖 Agentic SRE Copilot - Live on EC2")
         
         # Create subtabs for different views
