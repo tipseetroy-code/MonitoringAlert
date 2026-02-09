@@ -1,0 +1,40 @@
+[Unit]
+Description=SRE Agentic Copilot - Autonomous Incident Management
+Documentation=https://github.com/your-org/MonitoringAlert
+After=network.target
+StartLimitInterval=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=sre-agent
+Group=sre-agent
+WorkingDirectory=/root/MonitoringAlert
+
+# Python environment
+Environment="PATH=/root/MonitoringAlert/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/etc/sre-agent/sre-agent.env
+
+# Main process
+ExecStart=/root/MonitoringAlert/venv/bin/python -u /root/MonitoringAlert/backend/agentic/run_agentic.py
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/sre-agent /var/log/sre-agent
+
+# Process management
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sre-agent
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target
