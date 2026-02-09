@@ -863,16 +863,21 @@ Respond in a friendly and helpful way. Keep explanations clear and simple.
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 
-@st.cache_data
-def load_vulnerability_kb(EXCEL_URL):
+@st.cache_resource
+def get_copilot_kb_client():
+    """Initialize Copilot KB API client (replaces Excel loading)"""
     try:
-        df = pd.read_excel(EXCEL_URL)
-
-        # Normalize columns
-        df.columns = [c.lower() for c in df.columns]
-
-        return df
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+        from api.copilot_kb_client import CopilotKBClient
+        
+        # Use local API or remote
+        api_url = os.getenv("COPILOT_KB_API", "http://localhost:8000")
+        client = CopilotKBClient(api_url)
+        return client
     except Exception as e:
+        st.warning(f"⚠️ Copilot KB API not available: {str(e)}")
         return None
 
 def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
@@ -1279,11 +1284,16 @@ def main_app():
         f"({st.session_state.access_level.upper()} access)"
     )
 
-   # ---------------- Excel Vulnerability KB ----------------
-    EXCEL_URL = "https://raw.githubusercontent.com/abhigyanpal1/sre-agent-kb-demo/main/CWE_Knowledge_Base.xlsx"
-
-    if "vuln_df" not in st.session_state:
-        st.session_state.vuln_df = load_vulnerability_kb(EXCEL_URL)
+   # ✨ -------- Copilot KB API (Replaces Excel) --------
+    if "copilot_kb" not in st.session_state:
+        try:
+            st.session_state.copilot_kb = get_copilot_kb_client()
+            if st.session_state.copilot_kb:
+                st.sidebar.success("✅ Copilot KB API Connected (Unlimited Knowledge)")
+            else:
+                st.sidebar.warning("⚠️ Using fallback knowledge base")
+        except Exception as e:
+            st.sidebar.error(f"❌ KB Error: {str(e)}")
 
 
 
@@ -1639,7 +1649,7 @@ def main_app():
                     )
 
                     if raw_answer == "NOT_FOUND" or raw_answer is None:
-                        raw_answer = ai_chatbot_response(q, st.session_state.ui_state, st.session_state.vuln_df)
+                        raw_answer = ai_chatbot_response(q, st.session_state.ui_state, st.session_state.get("copilot_kb"))
 
                     formatted_answer = format_bot_response(raw_answer)
 
@@ -1682,7 +1692,7 @@ def main_app():
 
                     # If no matching rule found, fall back to Confluence + Web + LLM
                     if raw_answer == "NOT_FOUND" or raw_answer is None:
-                        raw_answer = ai_chatbot_response(user_query, st.session_state.ui_state, st.session_state.vuln_df)
+                        raw_answer = ai_chatbot_response(user_query, st.session_state.ui_state, st.session_state.get("copilot_kb"))
 
                     formatted_answer = format_bot_response(raw_answer)
 
