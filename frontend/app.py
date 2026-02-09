@@ -2119,133 +2119,63 @@ def main_app():
         
         st.divider()
         
-        # -------- AGENT LAYER --------
-        st.subheader("🤖 AGENT LAYER - Autonomous Certificate Management")
+        # -------- AUTONOMOUS AGENT MONITORING --------
+        st.subheader("🤖 AUTONOMOUS AGENT LAYER - Monitoring Only (No Manual Controls)")
         
-        agent_subtabs = st.tabs(["✅ Verify Agent", "🔐 Venefi Agent", "🔄 Provision Agent", "💬 Respond Agent"])
+        st.info("""
+        ℹ️ **Agents Run Autonomously 24/7 in Background Service**
         
-        # Verify Agent
-        with agent_subtabs[0]:
-            st.subheader("✅ Verify Agent - Valid/Expired Check")
-            verify_domain = st.text_input("Domain to Verify", placeholder="example.com", key="ssl_verify_domain")
-            
-            if st.button("Run Verification", key="ssl_verify_btn"):
-                if verify_domain:
-                    st.info(f"🔍 Verifying certificate for '{verify_domain}'...")
-                    
-                    # Check against inventory
-                    df = st.session_state.ssl_certs_df
-                    if df is not None and not df.empty and "Domain" in df.columns:
-                        match = df[df["Domain"].astype(str).str.lower() == verify_domain.strip().lower()]
-                        if not match.empty:
-                            status = match.iloc[0].get("Status", "Unknown")
-                            expiry = match.iloc[0].get("Expiry", "N/A")
-                            
-                            with st.container(border=True):
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric("Certificate Status", status)
-                                with col2:
-                                    st.metric("Expiry Date", expiry)
-                            
-                            if status.lower() == "expired":
-                                st.error("❌ Certificate EXPIRED - Renewal Required")
-                            else:
-                                st.success("✅ Certificate VALID")
-                        else:
-                            st.warning(f"⚠️ Certificate for '{verify_domain}' not found in inventory")
+        Agents automatically:
+        - Monitor SSL certificates every 1 hour
+        - Detect expiring certificates
+        - Renew certificates autonomously (when confidence > 70%)
+        - Send notifications (Teams/Slack/Outlook)
+        
+        This is **read-only monitoring**. All agent actions are autonomous.
+        """)
+        
+        # Monitor agent status from background service
+        agent_url = "http://18.237.102.97:8001/api/agents/ssl"
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Agent Status**")
+            try:
+                import requests
+                response = requests.get(agent_url, timeout=5)
+                if response.status_code == 200:
+                    agent_data = response.json()
+                    st.success(f"✅ {agent_data.get('agent')} - Running")
+                    st.caption(f"Last run: {agent_data.get('last_run', 'Never')}")
                 else:
-                    st.error("Please enter a domain")
+                    st.warning("⚠️ Agent service unreachable")
+            except Exception as e:
+                st.warning(f"⚠️ Cannot connect to agent service: {str(e)}")
         
-        # Venefi Agent
-        with agent_subtabs[1]:
-            st.subheader("🔐 Venefi Agent - Check Renewal Status")
-            venefi_domain = st.text_input("Domain in Venefi", placeholder="example.com", key="ssl_venefi_domain")
-            
-            if st.button("Check Venefi Status", key="ssl_venefi_btn"):
-                if venefi_domain:
-                    st.info(f"🔍 Checking '{venefi_domain}' in Venefi...")
-                    with st.spinner("Querying Venefi..."):
-                        pytime.sleep(1)
-                    
-                    st.success("✅ Certificate found in Venefi")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Provider", "Venefi Managed")
-                    with col2:
-                        st.metric("Renewal Available", "Yes")
-                    
-                    st.info("💡 Certificate is eligible for automatic renewal via Venefi Portal")
-                else:
-                    st.error("Please enter a domain")
+        with col2:
+            st.markdown("**Recent Autonomous Decisions**")
+            decisions_url = "http://18.237.102.97:8001/api/agents/decisions?limit=5"
+            try:
+                response = requests.get(decisions_url, timeout=5)
+                if response.status_code == 200:
+                    decisions = response.json().get("recent_decisions", [])
+                    if decisions:
+                        for d in decisions[-3:]:  # Show last 3
+                            st.caption(f"• {d.get('decision', 'N/A').upper()} | {d.get('action', 'N/A')} | {d.get('timestamp', 'N/A')[:10]}")
+                    else:
+                        st.caption("No decisions yet")
+            except:
+                st.caption("Unable to fetch decisions")
         
-        # Provision Agent
-        with agent_subtabs[2]:
-            st.subheader("🔄 Provision Agent - Renewal")
-            provision_domain = st.text_input("Domain to Renew", placeholder="example.com", key="ssl_provision_domain")
-            
-            if st.button("Execute Renewal", key="ssl_provision_btn", use_container_width=True):
-                if provision_domain:
-                    st.info(f"🚀 Starting SSL renewal for '{provision_domain}'...")
-                    
-                    steps = [
-                        "Step 1: Validate domain ownership via Venefi",
-                        "Step 2: Generate CSR (Certificate Signing Request)",
-                        "Step 3: Submit to Certificate Authority",
-                        "Step 4: Validate CA response",
-                        "Step 5: Install renewed certificate",
-                        "Step 6: Store in Vector DB & S3",
-                        "Step 7: Update MySQL inventory"
-                    ]
-                    
-                    for step in steps:
-                        st.info(step)
-                        pytime.sleep(0.3)
-                    
-                    # Update inventory
-                    update_ssl_inventory(provision_domain, status="Valid", days_valid=365, issuer="Venefi Managed")
-                    st.success(f"✅ Certificate renewed for '{provision_domain}' - Valid for 365 days")
-                else:
-                    st.error("Please enter a domain")
+        # Certificate Inventory View
+        st.subheader("📊 Certificate Inventory (Read-Only)")
         
-        # Respond Agent
-        with agent_subtabs[3]:
-            st.subheader("💬 Respond Agent - Notifications")
-            
-            st.info("🤖 Respond Agent handles multi-channel notifications:")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.markdown("**Teams**")
-                if st.button("📤 Send to Teams", key="ssl_teams_btn"):
-                    st.success("✅ Message sent to Teams #ssl-alerts channel")
-            
-            with col2:
-                st.markdown("**Slack**")
-                if st.button("📤 Send to Slack", key="ssl_slack_btn"):
-                    st.success("✅ Message sent to Slack #operations channel")
-            
-            with col3:
-                st.markdown("**Outlook**")
-                if st.button("📧 Send Email", key="ssl_email_btn"):
-                    st.success("✅ Email sent to ssl-team@company.com")
-            
-            # Notification Summary
-            st.divider()
-            st.subheader("📋 Notification Summary")
-            
-            notification_data = {
-                "Channel": ["Teams", "Slack", "Outlook", "Chatbot"],
-                "Status": ["✅ Sent", "✅ Sent", "✅ Sent", "📝 Pending"],
-                "Timestamp": ["2026-02-09 14:23", "2026-02-09 14:23", "2026-02-09 14:24", "-"]
-            }
-            
-            st.dataframe(
-                pd.DataFrame(notification_data),
-                use_container_width=True,
-                hide_index=True
-            )
+        df = st.session_state.ssl_certs_df
+        if df is not None and not df.empty:
+            with st.expander("📋 View Certificates", expanded=False):
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No certificates loaded")
 
     # --- Problems & Jira Tickets tab ---
     with tabs[2]:
@@ -2481,57 +2411,55 @@ def main_app():
         
         st.divider()
         
-        # Agent Problem Detection Demo
-        st.subheader("🤖 Simulate Agent Problem Detection")
+        # Autonomous Problem Detection (Read-Only Monitoring)
+        st.subheader("🤖 Autonomous Problem Detection - Monitoring Only")
         
-        if st.button("🚨 Simulate: High CPU Usage Detected", use_container_width=True):
-            problem = track_problem(
-                "High CPU Usage on prod-server-1",
-                "CPU usage has exceeded 95% for 5+ minutes. Processes: java (45%), nginx (30%), mysql (15%)",
-                "CPU",
-                solved=False
-            )
-            st.session_state.tracked_problems.append(problem)
-            if problem["jira_ticket"]:
-                st.session_state.jira_tickets.append({
-                    "ticket_id": problem["jira_ticket"],
-                    "problem_id": problem["id"],
-                    "created_at": utc_now(),
-                    "title": problem["title"],
-                    "severity": "Critical"
-                })
-            st.success(f"✅ Auto-created Jira: {problem.get('jira_ticket', 'Pending')}")
-            st.rerun()
+        st.info("""
+        ℹ️ **Problem Detection Agent Runs Autonomously 24/7**
         
-        if st.button("🚨 Simulate: Database Connection Failed", use_container_width=True):
-            problem = track_problem(
-                "Database Connection Timeout",
-                "Unable to connect to MySQL database. Error: Connection refused on 10.0.1.5:3306",
-                "Database",
-                solved=False
-            )
-            st.session_state.tracked_problems.append(problem)
-            if problem["jira_ticket"]:
-                st.session_state.jira_tickets.append({
-                    "ticket_id": problem["jira_ticket"],
-                    "problem_id": problem["id"],
-                    "created_at": utc_now(),
-                    "title": problem["title"],
-                    "severity": "Critical"
-                })
-            st.success(f"✅ Auto-created Jira: {problem.get('jira_ticket', 'Pending')}")
-            st.rerun()
+        Agent automatically:
+        - Monitors logs, metrics, alerts
+        - Detects problems in real-time
+        - Attempts autonomous fixes
+        - Auto-creates Jira tickets (only if agents cannot fix)
         
-        if st.button("✅ Simulate: Agent Fixed Disk Space Issue", use_container_width=True):
-            problem = track_problem(
-                "Disk Space Issue - RESOLVED",
-                "Agent detected /var at 92% usage. Automatically cleaned up old logs and freed 50GB. Issue resolved.",
-                "Disk Space",
-                solved=True
-            )
-            st.session_state.tracked_problems.append(problem)
-            st.success("✅ Problem solved by agent - No Jira ticket created")
-            st.rerun()
+        This is **read-only**. No manual simulation needed.
+        """)
+        
+        # Monitor Problem Detection Agent
+        agent_url = "http://18.237.102.97:8001/api/agents/problems"
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Agent Status**")
+            try:
+                import requests
+                response = requests.get(agent_url, timeout=5)
+                if response.status_code == 200:
+                    agent_data = response.json()
+                    st.success(f"✅ {agent_data.get('agent')} - Running")
+                    st.caption(f"Last run: {agent_data.get('last_run', 'Never')}")
+                else:
+                    st.warning("⚠️ Agent service unreachable")
+            except Exception as e:
+                st.warning(f"⚠️ Cannot connect to agent service")
+        
+        with col2:
+            st.markdown("**Problems Detected & Actions Taken**")
+            try:
+                decisions_url = "http://18.237.102.97:8001/api/agents/decisions?limit=10"
+                response = requests.get(decisions_url, timeout=5)
+                if response.status_code == 200:
+                    decisions = response.json().get("recent_decisions", [])
+                    problem_decisions = [d for d in decisions if "problem" in d.get('agent', '').lower()]
+                    if problem_decisions:
+                        for d in problem_decisions[-3:]:
+                            action = "✅ Fixed" if d.get('executed') else "⏳ Analyzing"
+                            st.caption(f"{action} | {d.get('action', 'N/A')} | Confidence: {int(d.get('confidence', 0)*100)}%")
+                    else:
+                        st.caption("No recent problems detected")
+            except:
+                st.caption("Unable to fetch agent decisions")
 
     # --- Vulnerability Remediation tab ---
     with tabs[3]:
