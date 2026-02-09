@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 import logging
 import os
-from autonomous_agent_service import AutonomousAgentService, initialize_service, get_service
+from .autonomous_agent_service import AutonomousAgentService, initialize_service, get_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
