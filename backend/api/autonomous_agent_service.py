@@ -8,12 +8,16 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
+import csv
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 from enum import Enum
 import threading
 import time
 from google import genai
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +289,24 @@ class HealthCheckAgent:
         self.name = "Health Check Agent"
         self.last_run = None
         self.health_history = {}
+        # Docker container mapping (AppName -> container_name)
+        self.docker_containers = {
+            "AuthService": "auth-service",
+            "PaymentAPI": "payment-api",
+            "UserService": "user-service",
+            "OrderService": "order-service",
+            "InventoryAPI": "inventory-api",
+            "FlakyService": "flaky-service"
+        }
+        # Docker container mapping (AppName -> container_name)
+        self.docker_containers = {
+            "AuthService": "auth-service",
+            "PaymentAPI": "payment-api",
+            "UserService": "user-service",
+            "OrderService": "order-service",
+            "InventoryAPI": "inventory-api",
+            "FlakyService": "flaky-service"
+        }
     
     async def monitor(self):
         """Continuously monitor system health"""
@@ -304,27 +326,62 @@ class HealthCheckAgent:
             await asyncio.sleep(300)
     
     async def _collect_metrics(self) -> Dict:
-        """Collect metrics from monitoring system"""
-        # Placeholder: would call Prometheus, CloudWatch, Splunk
+        """Collect metrics by checking URLs from apps.csv"""
+        apps_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "apps.csv")
+        
+        down_apps = []
+        total_apps = 0
+        
+        try:
+            with open(apps_file, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    app_name = row.get('AppName', '').strip()
+                    url = row.get('URL', '').strip()
+                    
+                    if not app_name or not url:
+                        continue
+                    
+                    total_apps += 1
+                    
+                    # Check URL health
+                    try:
+                        response = requests.get(url, timeout=5)
+                        if response.status_code >= 400:
+                            down_apps.append({"app": app_name, "url": url, "status": response.status_code})
+                            logger.warning(f"⚠️ {app_name} is DOWN (HTTP {response.status_code})")
+                    except Exception as e:
+                        down_apps.append({"app": app_name, "url": url, "error": str(e)})
+                        logger.warning(f"⚠️ {app_name} is UNREACHABLE: {str(e)}")
+        
+        except Exception as e:
+            logger.error(f"Failed to read apps.csv: {str(e)}")
+        
         return {
-            "cpu_usage": 85,
-            "memory_usage": 78,
-            "disk_usage": 92,
-            "network_latency": 150,
-            "error_rate": 0.02
+            "total_apps": total_apps,
+            "down_apps": down_apps,
+            "down_count": len(down_apps),
+            "health_percentage": ((total_apps - len(down_apps)) / total_apps * 100) if total_apps > 0 else 100
         }
     
     async def _analyze_health(self, metrics: Dict) -> Optional[AgentDecision]:
         """LLM analyzes metrics and decides if remediation needed"""
+        if metrics.get("down_count", 0) == 0:
+            return None  # All services healthy
+        
         prompt = f"""
-        Analyze system health metrics:
+        Analyze application health status:
         {json.dumps(metrics, indent=2)}
+        
+        There are {metrics['down_count']} services DOWN out of {metrics['total_apps']} total.
+        Down services: {[app['app'] for app in metrics.get('down_apps', [])]}
         
         Return JSON:
         {{
             "status": "healthy|degraded|critical",
-            "action": "restart_service|scale_resource|none",
+            "action": "restart_service|restart_docker|none",
             "confidence": 0-1,
+            "apps_to_restart": ["list of app names to restart"],
             "recommendation": "what_to_do"
         }}
         """
@@ -345,7 +402,12 @@ class HealthCheckAgent:
                 decision="approve" if data.get("confidence", 0) > 0.7 else "defer",
                 action=ActionType.RESTART_SERVICE if "restart" in data.get("action", "") else ActionType.SCALE_RESOURCE,
                 confidence=data.get("confidence", 0),
-                context={"metrics": metrics, "analysis": data}
+                context={
+                    "metrics": metrics,
+                    "analysis": data,
+                    "down_apps": metrics.get("down_apps", []),
+                    "apps_to_restart": data.get("apps_to_restart", [])
+                }
             )
         except Exception as e:
             logger.error(f"Analysis error: {str(e)}")
@@ -361,14 +423,79 @@ class HealthCheckAgent:
             decision.executed = True
     
     async def _apply_remediation(self, analysis: Dict):
-        """Apply health remediation (stub)"""
+        """Apply health remediation - restart Docker containers for down services"""
         action = analysis.get("action", "none")
         logger.info(f"⚙️ Applying remediation: {action}...")
-        # Placeholder: Would execute restart/scale operations
+        
         if "restart" in action:
-            logger.info("♻️ Restarting service...")
-        elif "scale" in action:
-            logger.info("📈 Scaling resources...")
+            apps_to_restart = analysis.get("apps_to_restart", [])
+            
+            for app_name in apps_to_restart:
+                container_name = self.docker_containers.get(app_name)
+                
+                if container_name:
+                    logger.info(f"♻️ Restarting Docker container: {container_name} (for {app_name})")
+                    restart_success = await self._restart_docker_container(container_name)
+                    
+                    if restart_success:
+                        logger.info(f"✅ Successfully restarted {container_name}")
+                        # Wait a bit for service to start
+                        await asyncio.sleep(5)
+                        # Re-check health
+                        await self._verify_service_health(app_name)
+                    else:
+                        logger.error(f"❌ Failed to restart {container_name}")
+                else:
+                    logger.warning(f"⚠️ No Docker mapping for {app_name} - manual intervention required")
+    
+    async def _restart_docker_container(self, container_name: str) -> bool:
+        """Restart a Docker container"""
+        try:
+            # Stop container
+            logger.info(f"🛑 Stopping container: {container_name}")
+            subprocess.run(["docker", "stop", container_name], capture_output=True, timeout=30)
+            
+            # Start container
+            logger.info(f"▶️ Starting container: {container_name}")
+            result = subprocess.run(["docker", "start", container_name], capture_output=True, timeout=30, text=True)
+            
+            if result.returncode == 0:
+                return True
+            else:
+                logger.error(f"Docker start failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout restarting container: {container_name}")
+            return False
+        except FileNotFoundError:
+            logger.error("Docker command not found - is Docker installed?")
+            return False
+        except Exception as e:
+            logger.error(f"Error restarting container: {str(e)}")
+            return False
+    
+    async def _verify_service_health(self, app_name: str):
+        """Verify service is healthy after restart"""
+        apps_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "apps.csv")
+        
+        try:
+            with open(apps_file, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('AppName', '').strip() == app_name:
+                        url = row.get('URL', '').strip()
+                        try:
+                            response = requests.get(url, timeout=5)
+                            if response.status_code < 400:
+                                logger.info(f"✅ {app_name} is now HEALTHY (HTTP {response.status_code})")
+                            else:
+                                logger.warning(f"⚠️ {app_name} still unhealthy (HTTP {response.status_code})")
+                        except Exception as e:
+                            logger.warning(f"⚠️ {app_name} health check failed: {str(e)}")
+                        break
+        except Exception as e:
+            logger.error(f"Failed to verify health: {str(e)}")
 
 
 class ProblemDetectionAgent:

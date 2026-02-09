@@ -1,0 +1,93 @@
+# Docker Compose for Health Check Agent Demo
+# This creates sample services that the Health Check Agent can monitor and restart
+
+version: '3.8'
+
+services:
+  auth-service:
+    image: nginx:alpine
+    container_name: auth-service
+    ports:
+      - "8081:80"
+    environment:
+      - SERVICE_NAME=AuthService
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  payment-api:
+    image: nginx:alpine
+    container_name: payment-api
+    ports:
+      - "8082:80"
+    environment:
+      - SERVICE_NAME=PaymentAPI
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  user-service:
+    image: nginx:alpine
+    container_name: user-service
+    ports:
+      - "8083:80"
+    environment:
+      - SERVICE_NAME=UserService
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  order-service:
+    image: nginx:alpine
+    container_name: order-service
+    ports:
+      - "8084:80"
+    environment:
+      - SERVICE_NAME=OrderService
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  inventory-api:
+    image: nginx:alpine
+    container_name: inventory-api
+    ports:
+      - "8085:80"
+    environment:
+      - SERVICE_NAME=InventoryAPI
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  flaky-service:
+    image: nginx:alpine
+    container_name: flaky-service
+    ports:
+      - "8086:80"
+    environment:
+      - SERVICE_NAME=FlakyService
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  default:
+    name: monitoring-network
