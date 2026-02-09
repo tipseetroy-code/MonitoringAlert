@@ -341,8 +341,8 @@ class AgenticSRECopilot:
         memory_path: str,
         reasoning_engine: Optional[Callable] = None,
         action_executor: Optional[Callable] = None,
-        notification_handler: Optional[Callable] = None,
-        jira_handler: Optional[Callable] = None,
+        notification_handler: Optional[Any] = None,
+        jira_handler: Optional[Any] = None,
     ):
         self.memory = Memory(memory_path)
         self.policy = Policy()
@@ -690,6 +690,24 @@ class AgenticSRECopilot:
                 # 2. REASON
                 decision = self.reason(incident)
 
+                # Escalate critical incidents to JIRA before actions
+                escalation_ticket = None
+                if decision.escalation_needed and self.jira_handler:
+                    if hasattr(self.jira_handler, "handle_escalation"):
+                        escalation_ticket = self.jira_handler.handle_escalation(
+                            incident, decision
+                        )
+
+                # Notify on-call for critical incidents
+                if (
+                    incident.severity == IncidentSeverity.CRITICAL
+                    and self.notification_handler
+                    and hasattr(self.notification_handler, "notify_incident")
+                ):
+                    self.notification_handler.notify_incident(
+                        incident, escalation_ticket=escalation_ticket
+                    )
+
                 # 3. PLAN
                 planned_actions = self.plan(incident, decision)
 
@@ -706,11 +724,19 @@ class AgenticSRECopilot:
 
                 # Notify stakeholders
                 if self.notification_handler:
-                    self.notification_handler(outcome)
+                    if hasattr(self.notification_handler, "notify_resolution"):
+                        self.notification_handler.notify_resolution(
+                            outcome, outcome.mttr_seconds
+                        )
+                    elif callable(self.notification_handler):
+                        self.notification_handler(outcome)
 
                 # Route to Jira if escalation needed
-                if decision.escalation_needed and self.jira_handler:
-                    self.jira_handler(outcome)
+                if self.jira_handler:
+                    if hasattr(self.jira_handler, "handle_outcome"):
+                        self.jira_handler.handle_outcome(outcome)
+                    elif callable(self.jira_handler):
+                        self.jira_handler(outcome)
 
             except Exception as e:
                 logger.error(f"Error in agentic loop for {incident.id}: {e}\n{traceback.format_exc()}")

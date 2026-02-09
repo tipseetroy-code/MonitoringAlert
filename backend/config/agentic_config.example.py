@@ -54,15 +54,17 @@ SMTP_CONFIG = {
 }
 
 # 4. NOTIFICATION RECIPIENTS
-ONCALL_EMAILS = [
-    "oncall@company.com",
-    "sre-team@company.com",
-]
+def _parse_email_list(value: str) -> list:
+    return [email.strip() for email in value.split(",") if email.strip()]
 
-DAILY_REPORT_EMAILS = [
-    "sre-team@company.com",
-    "engineering-leads@company.com",
-]
+
+ONCALL_EMAILS = _parse_email_list(
+    os.getenv("ONCALL_EMAILS", "oncall@company.com,sre-team@company.com")
+)
+
+DAILY_REPORT_EMAILS = _parse_email_list(
+    os.getenv("DAILY_REPORT_EMAILS", "sre-team@company.com,engineering-leads@company.com")
+)
 
 # 5. POLICY CONFIGURATION
 POLICY_CONFIG = {
@@ -202,6 +204,8 @@ REQUIRED_ENV_VARS = {
     "SMTP_FROM": "From email address",
     "SMTP_USERNAME": "SMTP username (if auth required)",
     "SMTP_PASSWORD": "SMTP password (if auth required)",
+    "ONCALL_EMAILS": "Comma-separated on-call email list",
+    "DAILY_REPORT_EMAILS": "Comma-separated daily report email list",
 }
 
 if __name__ == "__main__":

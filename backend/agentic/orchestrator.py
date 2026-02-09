@@ -105,20 +105,12 @@ class SREAgentOrchestrator:
         def _action_executor(action):
             return self.executor.execute_action(action)
 
-        def _notification_callback(outcome):
-            if self.notification_handler:
-                self.notification_handler.notify_resolution(outcome, outcome.mttr_seconds)
-
-        def _jira_callback(outcome):
-            if self.jira_handler:
-                self.jira_handler.handle_outcome(outcome)
-
         self.copilot = AgenticSRECopilot(
             memory_path=config.get("memory_path", "/tmp/incident_memory.json"),
             reasoning_engine=_reasoning_engine,
             action_executor=_action_executor,
-            notification_handler=_notification_callback,
-            jira_handler=_jira_callback,
+            notification_handler=self.notification_handler,
+            jira_handler=self.jira_handler,
         )
 
         logger.info("[ORCHESTRATOR] Initialization complete")
