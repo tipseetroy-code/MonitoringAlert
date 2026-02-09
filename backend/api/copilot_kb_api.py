@@ -8,7 +8,7 @@ import os
 import json
 import logging
 from typing import Dict, List, Optional
-import google.generativeai as genai
+from google import genai
 from functools import lru_cache
 import hashlib
 
@@ -32,19 +32,31 @@ class CopilotKBAPI:
             model: Model to use (gemini-pro, gemini-pro-vision, etc.)
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-        self.model_name = model
+        self.model_name = self._normalize_model(model)
         
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY not set. Please set environment variable.")
         
-        # Initialize Gemini
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(model)
+        # Initialize Gemini (google-genai client)
+        self.client = genai.Client(api_key=self.api_key)
         
         # Knowledge base cache
         self.kb_cache = {}
         
-        logger.info(f"✅ CopilotKBAPI initialized with model: {model}")
+        logger.info(f"✅ CopilotKBAPI initialized with model: {self.model_name}")
+
+    def _normalize_model(self, model: str) -> str:
+        """Normalize model names for google-genai."""
+        if model == "gemini-pro":
+            return "gemini-1.5-pro"
+        return model
+
+    def _generate_text(self, prompt: str) -> str:
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt
+        )
+        return getattr(response, "text", str(response))
     
     @lru_cache(maxsize=128)
     def query_vulnerability(self, vulnerability_id: str, cve: str = "") -> Dict:
@@ -79,16 +91,16 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
+            response_text = self._generate_text(prompt)
             
             # Parse JSON response
             try:
-                vuln_data = json.loads(response.text)
+                vuln_data = json.loads(response_text)
             except:
                 vuln_data = {
                     "id": vulnerability_id,
                     "name": vulnerability_id,
-                    "description": response.text,
+                    "description": response_text,
                     "severity": "UNKNOWN"
                 }
             
@@ -134,8 +146,8 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
-            return response.text
+            response_text = self._generate_text(prompt)
+            return response_text
         except Exception as e:
             logger.error(f"❌ Error getting remediation: {str(e)}")
             return f"Error: {str(e)}"
@@ -165,11 +177,11 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
+            response_text = self._generate_text(prompt)
             try:
-                return json.loads(response.text)
+                return json.loads(response_text)
             except:
-                return {"classification": response.text}
+                return {"classification": response_text}
         except Exception as e:
             logger.error(f"❌ Classification error: {str(e)}")
             return {"error": str(e)}
@@ -200,12 +212,12 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
+            response_text = self._generate_text(prompt)
             try:
-                results = json.loads(response.text)
+                results = json.loads(response_text)
                 return results[:limit] if isinstance(results, list) else []
             except:
-                return [{"result": response.text}]
+                return [{"result": response_text}]
         except Exception as e:
             logger.error(f"❌ Search error: {str(e)}")
             return []
@@ -238,8 +250,8 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
-            return response.text
+            response_text = self._generate_text(prompt)
+            return response_text
         except Exception as e:
             logger.error(f"❌ TVT generation error: {str(e)}")
             return f"Error: {str(e)}"
@@ -270,11 +282,11 @@ class CopilotKBAPI:
         """
         
         try:
-            response = self.model.generate_content(prompt)
+            response_text = self._generate_text(prompt)
             try:
-                return json.loads(response.text)
+                return json.loads(response_text)
             except:
-                return {"description": response.text}
+                return {"description": response_text}
         except Exception as e:
             logger.error(f"❌ Jira template error: {str(e)}")
             return {"error": str(e)}
