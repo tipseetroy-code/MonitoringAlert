@@ -23,13 +23,13 @@ class CopilotKBAPI:
     - Multi-model support (Google Gemini, OpenAI, etc.)
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-pro"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash-002"):
         """
         Initialize Copilot KB API
         
         Args:
             api_key: Google API key (or fetch from env)
-            model: Model to use (gemini-pro, gemini-pro-vision, etc.)
+            model: Model to use (gemini-1.5-flash-002, etc.)
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model_name = self._normalize_model(model)
