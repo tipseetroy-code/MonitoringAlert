@@ -47,8 +47,7 @@ class CopilotKBAPI:
 
     def _normalize_model(self, model: str) -> str:
         """Normalize model names for google-genai."""
-        if model == "gemini-pro":
-            return "gemini-1.5-pro"
+        # Return model as-is - google-genai uses standard model names
         return model
 
     def _generate_text(self, prompt: str) -> str:
