@@ -33,8 +33,12 @@ def get_agent_status():
         response = requests.get(f"{AGENT_SERVER_URL}/api/agents/status", timeout=5)
         response.raise_for_status()
         return {"success": True, "data": response.json()}
+    except requests.exceptions.ConnectTimeout:
+        return {"success": False, "error": f"Connection timeout: Agent server not responding at {AGENT_SERVER_URL}. Make sure it's running on port 8001"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Agent server error: {str(e)}"}
 
 def start_all_agents():
     """Start all agents (respects AUTO_RUN_AGENTS setting)"""
@@ -42,8 +46,12 @@ def start_all_agents():
         response = requests.post(f"{AGENT_SERVER_URL}/api/agents/start", timeout=5)
         response.raise_for_status()
         return {"success": True, "data": response.json()}
+    except requests.exceptions.ConnectTimeout:
+        return {"success": False, "error": f"Connection timeout: Agent server not responding at {AGENT_SERVER_URL}. Make sure it's running on port 8001"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Agent server error: {str(e)}"}
 
 def stop_all_agents():
     """Stop all agents"""
@@ -51,8 +59,12 @@ def stop_all_agents():
         response = requests.post(f"{AGENT_SERVER_URL}/api/agents/stop", timeout=5)
         response.raise_for_status()
         return {"success": True, "data": response.json()}
+    except requests.exceptions.ConnectTimeout:
+        return {"success": False, "error": f"Connection timeout: Agent server not responding at {AGENT_SERVER_URL}. Make sure it's running on port 8001"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Agent server error: {str(e)}"}
 
 def trigger_agents_manual():
     """Manually trigger all agents once (ignores AUTO_RUN_AGENTS)"""
@@ -60,8 +72,12 @@ def trigger_agents_manual():
         response = requests.post(f"{AGENT_SERVER_URL}/api/agents/trigger", timeout=5)
         response.raise_for_status()
         return {"success": True, "data": response.json()}
+    except requests.exceptions.ConnectTimeout:
+        return {"success": False, "error": f"Connection timeout: Agent server not responding at {AGENT_SERVER_URL}. Make sure it's running on port 8001"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Agent server error: {str(e)}"}
 
 def get_agent_decisions(limit=50):
     """Get recent agent decisions"""
@@ -69,5 +85,9 @@ def get_agent_decisions(limit=50):
         response = requests.get(f"{AGENT_SERVER_URL}/api/agents/decisions?limit={limit}", timeout=5)
         response.raise_for_status()
         return {"success": True, "data": response.json()}
+    except requests.exceptions.ConnectTimeout:
+        return {"success": False, "error": f"Connection timeout: Agent server not responding at {AGENT_SERVER_URL}. Make sure it's running on port 8001"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Agent server error: {str(e)}"}

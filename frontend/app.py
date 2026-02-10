@@ -2881,6 +2881,41 @@ def main_app():
                                 st.write(f"**Last Run**: {last_run[:19] if last_run else 'Never'}")
                 else:
                     st.error(f"⚠️ Cannot fetch status: {status_result['error']}")
+                    
+                    # Show setup instructions
+                    with st.expander("🔧 Fix: Agent Server Setup"):
+                        st.markdown("""
+                        **The agent server on port 8001 is not running.**
+                        
+                        ### Quick Start:
+                        
+                        **On EC2 or your server:**
+                        ```bash
+                        cd ~/MonitoringAlert
+                        python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001
+                        ```
+                        
+                        **In another terminal (local):**
+                        ```bash
+                        streamlit run frontend/app.py --server.port 8501
+                        ```
+                        
+                        ### Configuration:
+                        
+                        **Edit your .env file and set:**
+                        
+                        **For local development:**
+                        ```
+                        AGENT_SERVER_URL=http://localhost:8001
+                        ```
+                        
+                        **For EC2 access:**
+                        ```
+                        AGENT_SERVER_URL=http://18.237.102.97:8001
+                        ```
+                        
+                        Then restart Streamlit for changes to take effect.
+                        """)
             except Exception as e:
                 st.error(f"Error loading agent status: {str(e)}")
             
