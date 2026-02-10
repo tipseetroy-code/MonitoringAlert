@@ -198,6 +198,133 @@ async def problems_agent_status():
         "description": "Detects problems, auto-creates Jira if not solved by agents"
     }
 
+# ============== Tableau Mock API Endpoints ==============
+
+import csv
+from pathlib import Path
+
+def load_vulnerabilities():
+    """Load mock vulnerability data from CSV"""
+    csv_path = Path(__file__).parent.parent / "data" / "vulnerabilities.csv"
+    vulnerabilities = []
+    
+    if not csv_path.exists():
+        logger.warning(f"Vulnerabilities CSV not found at {csv_path}")
+        return vulnerabilities
+    
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                vulnerabilities.append(row)
+        logger.info(f"✅ Loaded {len(vulnerabilities)} vulnerabilities from {csv_path}")
+    except Exception as e:
+        logger.error(f"❌ Failed to load vulnerabilities: {e}")
+    
+    return vulnerabilities
+
+@app.get("/api/tableau/vulnerabilities")
+async def fetch_tableau_vulnerabilities(status: Optional[str] = None):
+    """
+    Fetch vulnerabilities from mock Tableau
+    Optional filters: status=OPEN|REMEDIATED
+    """
+    vulnerabilities = load_vulnerabilities()
+    
+    # Filter by status if provided
+    if status:
+        vulnerabilities = [v for v in vulnerabilities if v.get("Status") == status]
+    
+    return {
+        "success": True,
+        "count": len(vulnerabilities),
+        "data": vulnerabilities,
+        "timestamp": __import__('datetime').datetime.now().isoformat()
+    }
+
+@app.get("/api/tableau/vulnerabilities/{cve_id}")
+async def fetch_vulnerability_detail(cve_id: str):
+    """Fetch specific vulnerability details"""
+    vulnerabilities = load_vulnerabilities()
+    vuln = next((v for v in vulnerabilities if v.get("CVE_ID") == cve_id), None)
+    
+    if not vuln:
+        raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
+    
+    return {
+        "success": True,
+        "data": vuln,
+        "timestamp": __import__('datetime').datetime.now().isoformat()
+    }
+
+@app.get("/api/tableau/vulnerabilities/summary")
+async def fetch_tableau_summary():
+    """Get vulnerability summary statistics"""
+    vulnerabilities = load_vulnerabilities()
+    
+    summary = {
+        "total": len(vulnerabilities),
+        "critical": len([v for v in vulnerabilities if v.get("Severity") == "CRITICAL"]),
+        "high": len([v for v in vulnerabilities if v.get("Severity") == "HIGH"]),
+        "medium": len([v for v in vulnerabilities if v.get("Severity") == "MEDIUM"]),
+        "low": len([v for v in vulnerabilities if v.get("Severity") == "LOW"]),
+        "open": len([v for v in vulnerabilities if v.get("Status") == "OPEN"]),
+        "remediated": len([v for v in vulnerabilities if v.get("Status") == "REMEDIATED"]),
+        "exempted": len([v for v in vulnerabilities if v.get("Exempted") == "Yes"]),
+        "lle": len([v for v in vulnerabilities if v.get("LLE") == "Yes"]),
+    }
+    
+    return {
+        "success": True,
+        "summary": summary,
+        "timestamp": __import__('datetime').datetime.now().isoformat()
+    }
+
+class UpdateVulnerabilityRequest(BaseModel):
+    cve_id: str
+    status: str  # OPEN, REMEDIATED, etc.
+    remediation_notes: Optional[str] = None
+
+@app.post("/api/tableau/vulnerabilities/update")
+async def update_vulnerability_status(request: UpdateVulnerabilityRequest):
+    """
+    Update vulnerability status in mock Tableau
+    In production, this would update the actual Tableau datasource
+    """
+    vulnerabilities = load_vulnerabilities()
+    csv_path = Path(__file__).parent.parent / "data" / "vulnerabilities.csv"
+    
+    # Find and update the vulnerability
+    updated = False
+    for vuln in vulnerabilities:
+        if vuln.get("CVE_ID") == request.cve_id:
+            vuln["Status"] = request.status
+            if request.remediation_notes:
+                vuln["Remediation"] = request.remediation_notes
+            updated = True
+            break
+    
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"CVE {request.cve_id} not found")
+    
+    # Write back to CSV
+    try:
+        fieldnames = list(vulnerabilities[0].keys()) if vulnerabilities else []
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(vulnerabilities)
+        
+        logger.info(f"✅ Updated {request.cve_id} status to {request.status}")
+        return {
+            "success": True,
+            "message": f"Updated {request.cve_id} status to {request.status}",
+            "timestamp": __import__('datetime').datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to update vulnerability: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update: {e}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

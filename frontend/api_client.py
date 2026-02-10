@@ -91,3 +91,39 @@ def get_agent_decisions(limit=50):
         return {"success": False, "error": f"Cannot connect to agent server at {AGENT_SERVER_URL}. Please start it with: python3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001"}
     except requests.exceptions.RequestException as e:
         return {"success": False, "error": f"Agent server error: {str(e)}"}
+
+# ============= Tableau Mock API Functions =============
+def fetch_tableau_vulnerabilities(status=None):
+    """Fetch vulnerabilities from mock Tableau"""
+    try:
+        url = f"{AGENT_SERVER_URL}/api/tableau/vulnerabilities"
+        if status:
+            url += f"?status={status}"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Failed to fetch from Tableau: {str(e)}"}
+
+def fetch_tableau_summary():
+    """Get vulnerability summary from Tableau"""
+    try:
+        response = requests.get(f"{AGENT_SERVER_URL}/api/tableau/vulnerabilities/summary", timeout=5)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Failed to fetch summary from Tableau: {str(e)}"}
+
+def update_vulnerability_status(cve_id, status, remediation_notes=None):
+    """Update vulnerability status in Tableau"""
+    try:
+        payload = {
+            "cve_id": cve_id,
+            "status": status,
+            "remediation_notes": remediation_notes
+        }
+        response = requests.post(f"{AGENT_SERVER_URL}/api/tableau/vulnerabilities/update", json=payload, timeout=5)
+        response.raise_for_status()
+        return {"success": True, "data": response.json()}
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Failed to update vulnerability: {str(e)}"}

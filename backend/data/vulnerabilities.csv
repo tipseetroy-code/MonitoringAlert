@@ -1,0 +1,21 @@
+CVE_ID,Asset,Component,Severity,CVSS_Score,Description,Remediation,Status,Exempted,LLE,Detected_Date
+CVE-2024-12345,EPAS_Service,openssl,CRITICAL,9.8,Buffer overflow in TLS handshake,Update OpenSSL to 3.2.1,OPEN,No,No,2024-11-15
+CVE-2024-12346,AuthService,log4j,CRITICAL,9.5,Remote code execution via JNDI injection,Update log4j to 2.23.0,OPEN,No,No,2024-11-18
+CVE-2024-12347,PaymentAPI,jackson,HIGH,7.8,XML External Entity (XXE) injection,Update jackson-databind to 2.16.1,OPEN,No,No,2024-11-20
+CVE-2024-12348,UserService,commons-collections,HIGH,7.5,Unsafe deserialization,Update commons-collections to 3.2.2,OPEN,Yes,No,2024-11-22
+CVE-2024-12349,OrderService,spring-framework,HIGH,8.2,Remote code execution in SpEL,Update spring-framework to 6.1.4,OPEN,No,No,2024-11-25
+CVE-2024-12350,InventoryAPI,postgres-driver,MEDIUM,6.5,SQL injection in JDBC driver,Update postgres driver to 42.7.1,OPEN,No,Yes,2024-11-28
+CVE-2024-12351,EPAS_Service,tomcat,MEDIUM,5.9,Directory traversal vulnerability,Update Tomcat to 9.0.85,OPEN,No,No,2024-12-01
+CVE-2024-12352,AuthService,bcrypt,MEDIUM,5.3,Weak password hashing,Update bcrypt to 4.1.0,OPEN,No,No,2024-12-03
+CVE-2024-12353,PaymentAPI,jwt-lib,MEDIUM,6.1,JWT signature validation bypass,Update jwt-lib to 9.15,OPEN,Yes,No,2024-12-05
+CVE-2024-12354,UserService,express-js,LOW,4.8,Rate limiting bypass,Update express to 4.19.1,OPEN,No,No,2024-12-08
+CVE-2024-12355,OrderService,axios,LOW,3.7,Cache poisoning via HTTP headers,Update axios to 1.6.5,REMEDIATED,No,No,2024-12-10
+CVE-2024-12356,InventoryAPI,dotenv,LOW,2.1,Environment variable leakage,Update dotenv to 16.3.1,REMEDIATED,No,No,2024-12-12
+CVE-2024-12357,EPAS_Service,nodejs,MEDIUM,6.8,Buffer underrun in V8 engine,Update Node.js to 20.10.0,OPEN,No,No,2025-01-02
+CVE-2024-12358,AuthService,redis,MEDIUM,7.2,Authentication bypass in Redis cluster,Update Redis to 7.2.3,OPEN,No,No,2025-01-05
+CVE-2024-12359,PaymentAPI,nginx,LOW,4.3,Information disclosure via HTTP headers,Update Nginx to 1.25.3,OPEN,No,Yes,2025-01-08
+CVE-2024-12360,UserService,mysql,HIGH,8.6,Remote code execution via SQL,Update MySQL to 8.3.0,OPEN,No,No,2025-01-10
+CVE-2024-12361,OrderService,rabbitmq,MEDIUM,6.4,Unauthorized access to message queue,Update RabbitMQ to 3.13.0,OPEN,No,No,2025-01-12
+CVE-2024-12362,InventoryAPI,elasticsearch,HIGH,7.9,Remote code execution via plugin,Update Elasticsearch to 8.11.0,OPEN,Yes,No,2025-01-15
+CVE-2024-12363,EPAS_Service,python-requests,MEDIUM,5.4,HTTP request smuggling,Update requests to 2.31.0,OPEN,No,Yes,2025-01-18
+CVE-2024-12364,AuthService,graphql,MEDIUM,6.2,Query complexity DoS,Update graphql to 3.3.0,OPEN,No,No,2025-01-20

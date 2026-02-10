@@ -6,7 +6,8 @@ import requests
 from api_client import (
     start_agent, stop_agent, simulate_incident, fetch_incidents,
     get_agent_status, start_all_agents, stop_all_agents, 
-    trigger_agents_manual, get_agent_decisions
+    trigger_agents_manual, get_agent_decisions,
+    fetch_tableau_vulnerabilities, fetch_tableau_summary, update_vulnerability_status
 )
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
 from datetime import datetime, timezone, time, timedelta
@@ -2492,12 +2493,18 @@ def main_app():
         **Automated Vulnerability Management Pipeline:**
         1. 📊 **Download** → Fetch vulnerability details from Tableau
         2. 🗑️ **Filter** → Remove exempted & LLE vulnerabilities
-        3. 🏷️ **Classify** → Identify type & assign remediation team
+        3. 🏷️ **Classify** → Identify type & assign remediation team (Agentic)
         4. 📧 **Engage** → Auto-create tickets & notifications
         5. ✅ **Validate** → TVT (Test & Verify) post-patching
         """)
         
         st.divider()
+        
+        # Initialize session state for vulnerability data
+        if "tableau_vulnerabilities" not in st.session_state:
+            st.session_state.tableau_vulnerabilities = []
+        if "tableau_summary" not in st.session_state:
+            st.session_state.tableau_summary = {}
         
         # -------- PERCEPTION LAYER: Download from Tableau --------
         st.subheader("📊 PERCEPTION - Download Vulnerabilities from Tableau")
@@ -2507,17 +2514,150 @@ def main_app():
         with col1:
             if st.button("📥 Sync Tableau Vulnerabilities", key="vuln_sync_tableau", use_container_width=True):
                 st.info("🔄 Fetching vulnerability data from Tableau...")
-                pytime.sleep(0.5)
-                st.success("✅ Downloaded 47 vulnerabilities from Tableau")
-                # Initialize session state for vulnerabilities
-                if "vulnerabilities" not in st.session_state:
-                    st.session_state.vulnerabilities = []
+                
+                # Fetch from Tableau API
+                result = fetch_tableau_vulnerabilities()
+                if result["success"]:
+                    data = result["data"]
+                    st.session_state.tableau_vulnerabilities = data.get("data", [])
+                    st.success(f"✅ Downloaded {data.get('count', 0)} vulnerabilities from Tableau")
+                else:
+                    st.error(f"❌ {result['error']}")
+                
+                # Fetch summary
+                summary_result = fetch_tableau_summary()
+                if summary_result["success"]:
+                    st.session_state.tableau_summary = summary_result["data"].get("summary", {})
         
-        with col2:
-            st.metric("Total Vulnerabilities", "47")
+        # Display summary metrics
+        summary = st.session_state.tableau_summary
+        if summary:
+            with col2:
+                st.metric("Total", summary.get("total", 0))
+            with col3:
+                st.metric("Open", summary.get("open", 0))
+            
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+            with metric_col1:
+                st.metric("🔴 Critical", summary.get("critical", 0))
+            with metric_col2:
+                st.metric("🟠 High", summary.get("high", 0))
+            with metric_col3:
+                st.metric("🟡 Medium", summary.get("medium", 0))
+            with metric_col4:
+                st.metric("🔵 Low", summary.get("low", 0))
         
-        with col3:
-            st.metric("Last Sync", "2026-02-09 10:30 AM")
+        st.divider()
+        
+        # -------- FILTER: Remove Exempted & LLE --------
+        st.subheader("🗑️ FILTER - Remove Exempted & LLE Vulnerabilities")
+        
+        if st.session_state.tableau_vulnerabilities:
+            vuln_data = st.session_state.tableau_vulnerabilities
+            
+            # Apply filters
+            filtered_vulns = vuln_data.copy()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"**Remove Exempted:** {len([v for v in filtered_vulns if v.get('Exempted') == 'Yes'])} found")
+                if st.checkbox("✓ Exclude Exempted", value=False, key="filter_exempted"):
+                    filtered_vulns = [v for v in filtered_vulns if v.get('Exempted') != 'Yes']
+                    st.info(f"Filtered to {len(filtered_vulns)} vulnerabilities")
+            
+            with col2:
+                st.markdown(f"**Remove Low-Level Exploitable (LLE):** {len([v for v in filtered_vulns if v.get('LLE') == 'Yes'])} found")
+                if st.checkbox("✓ Exclude LLE", value=False, key="filter_lle"):
+                    filtered_vulns = [v for v in filtered_vulns if v.get('LLE') != 'Yes']
+                    st.info(f"Filtered to {len(filtered_vulns)} vulnerabilities")
+            
+            st.divider()
+            
+            # -------- CLASSIFY: Agentic Classification --------
+            st.subheader("🏷️ CLASSIFY - Agentic Vulnerability Classification")
+            
+            st.markdown("**AI-powered Classification (Groq LLM):**")
+            st.markdown("- Vulnerability type detection")
+            st.markdown("- Remediation team assignment")
+            st.markdown("- Risk assessment & priority")
+            st.markdown("- Estimated effort & timeline")
+            
+            if st.button("🧠 Auto-Classify Vulnerabilities", key="classify_button", use_container_width=True):
+                if filtered_vulns:
+                    st.info(f"🔍 Classifying {len(filtered_vulns)} vulnerabilities with Groq AI...")
+                    
+                    # Build classification prompt
+                    vulns_text = "\n\n".join([
+                        f"CVE: {v.get('CVE_ID')}\nComponent: {v.get('Component')}\nSeverity: {v.get('Severity')}\nDescription: {v.get('Description')}"
+                        for v in filtered_vulns[:10]  # Classify first 10 to save API quota
+                    ])
+                    
+                    classification_prompt = f"""Analyze these vulnerabilities and provide:
+1. Vulnerability Type (RCE, Injection, Auth Bypass, etc.)
+2. Remediation Team (Backend, Infrastructure, Security, etc.)
+3. Risk Level (Critical, High, Medium, Low)
+4. Effort (Low: <1h, Medium: 1-4h, High: 4-8h, Complex: >8h)
+5. Timeline (Immediate, 24h, Weekly, Monthly)
+
+Vulnerabilities:
+{vulns_text}
+
+Provide JSON format response."""
+                    
+                    # Call Groq for classification
+                    groq_key = os.getenv("GROQ_API_KEY")
+                    gemini_client = None
+                    try:
+                        from google import genai
+                        gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+                    except:
+                        pass
+                    
+                    from backend.api.autonomous_agent_service import llm_generate
+                    classification = llm_generate(classification_prompt, groq_key, gemini_client, "models/gemini-2.5-flash")
+                    
+                    st.success("✅ Classification complete")
+                    st.markdown("**Classification Results:**")
+                    st.code(classification, language="json")
+                else:
+                    st.warning("No vulnerabilities to classify after filtering")
+            
+            st.divider()
+            
+            # -------- REMEDIATION WORKFLOW --------
+            st.subheader("📋 REMEDIATION WORKFLOW")
+            
+            # Display vulnerabilities
+            st.markdown(f"**Showing {len(filtered_vulns)} vulnerabilities to remediate:**")
+            
+            for vuln in filtered_vulns[:5]:  # Show first 5
+                with st.expander(f"🔴 {vuln.get('CVE_ID')} - {vuln.get('Component')} ({vuln.get('Severity')})"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Severity:** {vuln.get('Severity')}")
+                        st.markdown(f"**CVSS:** {vuln.get('CVSS_Score')}")
+                        st.markdown(f"**Asset:** {vuln.get('Asset')}")
+                    with col2:
+                        st.markdown(f"**Status:** {vuln.get('Status')}")
+                        st.markdown(f"**Detected:** {vuln.get('Detected_Date')}")
+                        st.markdown(f"**Component:** {vuln.get('Component')}")
+                    
+                    st.markdown(f"**Description:** {vuln.get('Description')}")
+                    st.markdown(f"**Remediation:** {vuln.get('Remediation')}")
+                    
+                    # Update status button
+                    if st.button(f"✅ Mark as REMEDIATED", key=f"remediate_{vuln.get('CVE_ID')}"):
+                        result = update_vulnerability_status(vuln.get('CVE_ID'), "REMEDIATED", "Fixed via agentic workflow")
+                        if result["success"]:
+                            st.success(f"✅ {vuln.get('CVE_ID')} marked as REMEDIATED in Tableau")
+                            # Refresh data
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Failed to update: {result['error']}")
+        else:
+            st.info("📌 Click 'Sync Tableau Vulnerabilities' to load data")
+
         
         st.divider()
         
