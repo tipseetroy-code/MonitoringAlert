@@ -1054,7 +1054,13 @@ Respond in a friendly and helpful way. Keep explanations clear and simple.
         else:
             return f"{web_result}\n\nAI could not generate a response." if web_result else "AI could not generate a response."
     except Exception as e:
-        return f"{web_result}\n\nAI error: {str(e)}" if web_result else f"AI error: {str(e)}"
+        error_str = str(e)
+        # Handle SSL certificate errors gracefully
+        if "SSL" in error_str or "CERTIFICATE" in error_str:
+            ssl_error_msg = "⚠️ SSL certificate verification failed. AI chatbot unavailable.\n\n💡 **Tip:** This usually means your network requires SSL certificates. The app will continue to work with local features."
+            return f"{web_result}\n\n{ssl_error_msg}" if web_result else ssl_error_msg
+        else:
+            return f"{web_result}\n\nAI error: {error_str}" if web_result else f"AI error: {error_str}"
 def generate_commit_hash(length=40):
     return ''.join(random.choices('0123456789abcdef', k=length))
 

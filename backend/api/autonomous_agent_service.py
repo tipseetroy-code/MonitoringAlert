@@ -41,6 +41,42 @@ def call_groq_llm(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
         logger.error(f"Groq API error: {str(e)}")
         return "{}"
 
+def llm_generate(prompt: str, groq_key: str = None, gemini_client = None, model: str = "models/gemini-2.5-flash") -> str:
+    """Generate LLM response with SSL error handling (Groq first, then Gemini fallback)"""
+    # Try Groq first if available
+    if groq_key and groq_client:
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=1024
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Groq API error (trying Gemini fallback): {str(e)}")
+    
+    # Try Gemini as fallback
+    if gemini_client:
+        try:
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=prompt
+            )
+            return response.text if response.text else "{}"
+        except Exception as e:
+            # Handle SSL certificate errors gracefully
+            error_str = str(e)
+            if "SSL" in error_str or "CERTIFICATE" in error_str:
+                logger.error(f"SSL Certificate Error: {error_str}")
+                return '{"error": "SSL certificate verification failed. AI classification unavailable.", "fallback": true}'
+            else:
+                logger.error(f"Gemini API error: {error_str}")
+                return '{"error": "AI classification failed", "fallback": true}'
+    
+    # No LLM available
+    return '{"error": "No LLM API available (Groq and Gemini both failed)", "fallback": true}'
+
 def extract_json_from_response(text: str) -> Dict:
     """Extract JSON from Gemini response (handles markdown wrapping)"""
     if not text:
