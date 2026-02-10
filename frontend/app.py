@@ -3,7 +3,11 @@ import random
 import streamlit as st
 import pandas as pd
 import requests
-from api_client import start_agent, stop_agent, simulate_incident, fetch_incidents
+from api_client import (
+    start_agent, stop_agent, simulate_incident, fetch_incidents,
+    get_agent_status, start_all_agents, stop_all_agents, 
+    trigger_agents_manual, get_agent_decisions
+)
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
 from datetime import datetime, timezone, time, timedelta
 import json
@@ -2789,6 +2793,104 @@ def main_app():
             """)
             
             st.divider()
+            st.divider()
+            
+            # ============= AGENT CONTROL SECTION =============
+            st.subheader("🎛️ Agent Controls")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if st.button("▶️ Start Agents", use_container_width=True):
+                    with st.spinner("Starting agents..."):
+                        result = start_all_agents()
+                        if result["success"]:
+                            st.success("✅ Agents started successfully!")
+                        else:
+                            st.error(f"❌ Failed: {result['error']}")
+            
+            with col2:
+                if st.button("⏸️ Stop Agents", use_container_width=True):
+                    with st.spinner("Stopping agents..."):
+                        result = stop_all_agents()
+                        if result["success"]:
+                            st.success("✅ Agents stopped successfully!")
+                        else:
+                            st.error(f"❌ Failed: {result['error']}")
+            
+            with col3:
+                if st.button("🎯 Trigger Once", use_container_width=True):
+                    with st.spinner("Running agents once..."):
+                        result = trigger_agents_manual()
+                        if result["success"]:
+                            st.success("✅ Agents triggered! Analysis running...")
+                        else:
+                            st.error(f"❌ Failed: {result['error']}")
+            
+            with col4:
+                if st.button("🔄 Refresh Status", use_container_width=True):
+                    st.rerun()
+            
+            st.divider()
+            
+            # ============= AGENT STATUS SECTION =============
+            st.subheader("📊 Agent Status")
+            try:
+                status_result = get_agent_status()
+                if status_result["success"]:
+                    status_data = status_result["data"]
+                    
+                    # Overall status
+                    is_running = status_data.get("running", False)
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Service Running", "🟢 Yes" if is_running else "🔴 No")
+                    with col2:
+                        st.metric("Total Decisions", status_data.get("total_decisions", 0))
+                    with col3:
+                        st.metric("Executed Actions", status_data.get("executed_actions", 0))
+                    with col4:
+                        st.metric("Agents", len(status_data.get("agents", {})))
+                    
+                    st.divider()
+                    
+                    # Individual agent status
+                    st.subheader("Individual Agents")
+                    agents = status_data.get("agents", {})
+                    
+                    for agent_name, agent_info in agents.items():
+                        with st.expander(f"{'🟢' if agent_info.get('active') else '🔴'} {agent_name}"):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.write(f"**Active**: {agent_info.get('active', False)}")
+                            with col2:
+                                st.write(f"**Agent**: {agent_info.get('name', 'N/A')}")
+                            with col3:
+                                last_run = agent_info.get('last_run', 'Never')
+                                st.write(f"**Last Run**: {last_run[:19] if last_run else 'Never'}")
+                else:
+                    st.error(f"⚠️ Cannot fetch status: {status_result['error']}")
+            except Exception as e:
+                st.error(f"Error loading agent status: {str(e)}")
+            
+            st.divider()
+            
+            # ============= RECENT DECISIONS SECTION =============
+            st.subheader("📋 Recent Agent Decisions")
+            try:
+                decisions_result = get_agent_decisions(limit=10)
+                if decisions_result["success"]:
+                    decisions = decisions_result["data"]
+                    if decisions:
+                        df = pd.DataFrame(decisions)
+                        st.dataframe(df, use_container_width=True)
+                    else:
+                        st.info("No decisions recorded yet")
+                else:
+                    st.warning("Unable to fetch decisions")
+            except Exception as e:
+                st.warning(f"Could not load decisions: {str(e)}")
+            
             st.divider()
             
             # Service Status
