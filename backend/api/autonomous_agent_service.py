@@ -105,7 +105,7 @@ class SSLCertificateAgent:
     def __init__(self, client: genai.Client, model: str = "models/gemini-2.5-flash"):
         self.client = client
         self.model = model
-        self.name = "SSL Certificate Agent"
+        self.name = "🔐 SSL Guardian Agent"
         self.last_run = None
         self.certificates = {}
         
@@ -216,7 +216,7 @@ class VulnerabilityRemediationAgent:
     def __init__(self, client: genai.Client, model: str = "models/gemini-2.5-flash"):
         self.client = client
         self.model = model
-        self.name = "Vulnerability Remediation Agent"
+        self.name = "🛡️ Security Patch Agent"
         self.last_run = None
     
     async def monitor(self):
@@ -319,7 +319,7 @@ class HealthCheckAgent:
     def __init__(self, client: genai.Client, model: str = "models/gemini-2.5-flash"):
         self.client = client
         self.model = model
-        self.name = "Health Check Agent"
+        self.name = "💓 Auto-Healer Agent"
         self.last_run = None
         self.health_history = {}
         # Docker container mapping (AppName -> container_name)
@@ -552,7 +552,7 @@ class ProblemDetectionAgent:
     def __init__(self, client: genai.Client, model: str = "models/gemini-2.5-flash"):
         self.client = client
         self.model = model
-        self.name = "Problem Detection Agent"
+        self.name = "🔍 Incident Scout Agent"
         self.last_run = None
     
     async def monitor(self):
