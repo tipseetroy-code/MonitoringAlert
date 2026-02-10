@@ -1095,6 +1095,8 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
 
     # -------- GENERAL FALLBACK RESPONSES (for non-technical queries) --------
     general_keywords = {
+        "confluence": "📘 **Confluence Documentation**\n\nTo access Confluence KB:\n\n**Main KB URL:** https://teammeenakshi.atlassian.net/wiki/x/AgAH\n\n**Common Pages:**\n- SSL Certificate Renewal SOPs\n- Self-Healing Procedures\n- Deployment Guidelines\n- Incident Response Runbooks\n- Application Monitoring Setup\n\n**Search Tips:**\n- Ask specific questions like 'SSL renewal process'\n- Search by CVE ID or vulnerability name\n- Look for SOP documentation by service name\n\nOr visit the link above to browse all documentation!",
+        
         "trading": "📊 **Trading Information**\n\nThis is an IT monitoring system. For trading applications, please check:\n- Trading platform status in the Health Check Monitoring tab\n- Market data feeds and connectivity\n- Application performance metrics\n\nIf you need trading-specific help, please contact the Trading Support team.",
         
         "help": "💡 **Available Commands:**\n\n**SSL Certificates:**\n- 'renew SSL for [domain]'\n- 'vault SSL for [domain]'\n\n**Self-Healing:**\n- 'disk space issue'\n- 'app down'\n- 'url down'\n\n**Deployments:**\n- 'deployment status'\n\n**AutoSys:**\n- 'status job [name]'\n\n**Health Monitoring:**\n- Check service health\n- Docker container status\n- Auto-restart diagnostics\n\nOr simply ask me a question!",
@@ -1116,14 +1118,31 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
             return response
 
     # -------- CONFLUENCE APP DETAILS --------
-    confluence_match = search_confluence(query)
-    if confluence_match:
-        return (
-            f"📘 **Confluence App Details**\n\n"
-            f"**Title:** {confluence_match.get('title')}\n"
-            f"**Link:** {confluence_match.get('url')}\n\n"
-            f"**Summary:** {confluence_match.get('snippet')}"
-        )
+    if "confluence" in query and len(query.split()) > 1:  # More specific confluence queries
+        confluence_match = search_confluence(query)
+        if confluence_match:
+            return (
+                f"📘 **Confluence App Details**\n\n"
+                f"**Title:** {confluence_match.get('title')}\n"
+                f"**Link:** {confluence_match.get('url')}\n\n"
+                f"**Summary:** {confluence_match.get('snippet')}"
+            )
+        else:
+            # If confluence search fails, provide helpful fallback
+            search_term = query.replace("confluence", "").strip()
+            return (
+                f"📘 **Confluence Search**\n\n"
+                f"I couldn't find specific documentation for '{search_term}' in the local index.\n\n"
+                f"**Try These Resources:**\n"
+                f"- Main Confluence KB: https://teammeenakshi.atlassian.net/wiki/x/AgAH\n"
+                f"- Search directly in Confluence for '{search_term}'\n"
+                f"- Check the SSL, Deployment, or Incident Response sections\n\n"
+                f"**Available SOPs:**\n"
+                f"- SSL Certificate Renewal\n"
+                f"- Self-Healing Procedures\n"
+                f"- Deployment Guidelines\n"
+                f"- Vulnerability Remediation"
+            )
     
 
     # -------- CERTIFICATES --------
