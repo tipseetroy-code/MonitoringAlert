@@ -69,21 +69,53 @@ def load_apps_csv(file_path="apps.csv"):
 
 def check_app_health(app):
     """Check single app health"""
+    docker_container = app.get("DockerContainer", "")
+    url = app.get("URL", "")
+    if docker_container:
+        try:
+            parsed = urlparse(url)
+            host = parsed.hostname or ""
+            port = parsed.port
+            if not port:
+                port = 443 if parsed.scheme == "https" else 80
+
+            with socket.create_connection((host, port), timeout=5):
+                return {
+                    "AppName": app.get("AppName", ""),
+                    "URL": url,
+                    "DockerContainer": docker_container,
+                    "CheckType": "TCP",
+                    "Status": "TCP",
+                    "Result": f"✅ TCP OK ({host}:{port})",
+                    "Color": "green"
+                }
+        except Exception as e:
+            return {
+                "AppName": app.get("AppName", ""),
+                "URL": url,
+                "DockerContainer": docker_container,
+                "CheckType": "TCP",
+                "Status": "TCP",
+                "Result": f"❌ TCP Error: {str(e)[:40]}",
+                "Color": "red"
+            }
     try:
-        requests.get(app["URL"], timeout=8, verify=False, allow_redirects=True)
+        requests.get(url, timeout=8, verify=False, allow_redirects=True)
         return {
-            "AppName": app["AppName"],
-            "URL": app["URL"],
-            "DockerContainer": app.get("DockerContainer", ""),
+            "AppName": app.get("AppName", ""),
+            "URL": url,
+            "DockerContainer": docker_container,
+            "CheckType": "HTTP",
             "Status": 200,
             "Result": "✅ OK",
             "Color": "green"
         }
     except Exception as e:
         return {
-            "AppName": app["AppName"],
-            "URL": app["URL"],
-            "DockerContainer": app.get("DockerContainer", ""),
+            "AppName": app.get("AppName", ""),
+            "URL": url,
+            "DockerContainer": docker_container,
+            "CheckType": "HTTP",
             "Status": "N/A",
             "Result": f"❌ Error: {str(e)[:30]}",
             "Color": "red"
@@ -131,30 +163,80 @@ def _port_conflict_diagnostics(url: str) -> Dict[str, str]:
 
 
 def _docker_status(container_name: str) -> Dict[str, str]:
+    """Check Docker container status - supports both local and remote (SSH)"""
     try:
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-            capture_output=True,
-            text=True,
-            timeout=6,
-        )
+        # Check if we should use SSH for remote status check
+        ssh_key = os.getenv("EC2_SSH_KEY", r"C:\Users\KF879ZY\Downloads\Team Meenakshi.pem")
+        ssh_host = os.getenv("EC2_SSH_HOST", "ubuntu@18.237.102.97")
+        use_ssh = os.getenv("USE_SSH_DOCKER", "true").lower() == "true"
+        
+        if use_ssh and os.path.exists(ssh_key):
+            # Remote status check via SSH
+            ssh_command = [
+                "ssh",
+                "-i", ssh_key,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+                ssh_host,
+                f'docker inspect -f "{{{{.State.Status}}}}" {container_name}'
+            ]
+            result = subprocess.run(
+                ssh_command,
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+        else:
+            # Local status check (fallback)
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+        
         if result.returncode != 0:
-            return {"status": "unknown", "error": result.stderr.strip()}
+            return {"status": "unknown", "error": result.stderr.strip() or "Container not found"}
         return {"status": result.stdout.strip()}
     except Exception as exc:
         return {"status": "unknown", "error": str(exc)}
 
 
 def _restart_docker(container_name: str) -> Dict[str, str]:
+    """Restart Docker container - supports both local and remote (SSH) restart"""
     try:
-        result = subprocess.run(
-            ["docker", "restart", container_name],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        # Check if we should use SSH for remote restart
+        ssh_key = os.getenv("EC2_SSH_KEY", r"C:\Users\KF879ZY\Downloads\Team Meenakshi.pem")
+        ssh_host = os.getenv("EC2_SSH_HOST", "ubuntu@18.237.102.97")
+        use_ssh = os.getenv("USE_SSH_DOCKER", "true").lower() == "true"
+        
+        if use_ssh and os.path.exists(ssh_key):
+            # Remote restart via SSH
+            ssh_command = [
+                "ssh",
+                "-i", ssh_key,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+                ssh_host,
+                f"docker restart {container_name}"
+            ]
+            result = subprocess.run(
+                ssh_command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        else:
+            # Local restart (fallback)
+            result = subprocess.run(
+                ["docker", "restart", container_name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        
         if result.returncode != 0:
-            return {"success": "false", "error": result.stderr.strip()}
+            return {"success": "false", "error": result.stderr.strip() or "Unknown error"}
         return {"success": "true", "output": result.stdout.strip()}
     except Exception as exc:
         return {"success": "false", "error": str(exc)}
@@ -2011,6 +2093,7 @@ def main_app():
                                     })
                                 else:
                                     outcome = agentic_execute_restart(result)
+                                    decision["execution"] = outcome
                                     st.session_state.health_check_logs.append(
                                         f"{utc_now()} | AGENTIC_RESTART | app={decision['app']} | outcome={outcome['outcome']}"
                                     )
@@ -2080,6 +2163,7 @@ def main_app():
                             if action["action"] == "restart" and action.get("requires_approval"):
                                 if st.button(f"Approve restart: {action['app']}", key=f"approve_{action['app']}"):
                                     outcome = agentic_execute_restart({"AppName": action["app"]})
+                                    action["execution"] = outcome
                                     st.success(f"Restart approved for {action['app']}: {outcome['details']}")
                                     st.session_state.health_check_logs.append(
                                         f"{utc_now()} | AGENTIC_RESTART | app={action['app']} | outcome={outcome['outcome']}"
@@ -2093,33 +2177,50 @@ def main_app():
                                     })
                                     save_incident_memory(memory)
                 
-                # Detailed Table
-                st.write("### Detailed Status")
-                
+                # Demo-friendly card layout
+                st.write("### Demo Status Cards")
+                actions_by_app = {a["app"]: a for a in st.session_state.get("agentic_actions", [])}
+                restarts_executed = [
+                    a for a in actions_by_app.values()
+                    if a.get("execution", {}).get("outcome") == "resolved"
+                ]
+                if restarts_executed:
+                    st.success(f"✅ Auto-restarts executed: {len(restarts_executed)}")
+
                 for result in results:
-                    with st.container():
-                        color_icon = "🟢" if result["Color"] == "green" else "🔴"
-                        col1, col2, col3, col4 = st.columns([2, 3, 1, 2])
-                        
+                    action = actions_by_app.get(result.get("AppName"))
+                    color_icon = "🟢" if result["Color"] == "green" else "🔴"
+                    with st.container(border=True):
+                        col1, col2 = st.columns([3, 2])
                         with col1:
-                            st.write(f"{color_icon} **{result['AppName']}**")
+                            st.write(f"{color_icon} **{result.get('AppName', '')}**")
+                            st.caption(f"{result.get('URL', '')}")
+                            if result.get("DockerContainer"):
+                                st.caption(f"Container: {result.get('DockerContainer')}")
                         with col2:
-                            # Find the original app to get DockerContainer info
-                            docker_container = ""
-                            for app in st.session_state.apps:
-                                if app["AppName"] == result["AppName"]:
-                                    docker_container = app.get("DockerContainer", "")
-                                    break
-                            
-                            # Display URL and DockerContainer in single column
-                            st.write(f"**URL:** `{result['URL']}`")
-                            if docker_container:
-                                st.write(f"**Container:** `{docker_container}`")
-                        with col3:
-                            st.write(f"**{result['Status']}**")
-                        with col4:
-                            st.write(result["Result"])
-                    st.divider()
+                            st.write(f"Status: **{result.get('Status', '')}**")
+                            check_type = result.get("CheckType", "")
+                            if check_type:
+                                st.write(f"Check: {check_type}")
+
+                        st.write(result.get("Result", ""))
+
+                        if action:
+                            st.markdown("**Auto-Restart Decision**")
+                            st.write(f"Action: {action.get('action')} | Safe: {action.get('safe_to_act')}")
+                            st.caption(action.get("reason", ""))
+
+                            execution = action.get("execution")
+                            if execution:
+                                st.markdown("**Execution**")
+                                st.write(f"Outcome: {execution.get('outcome')} | {execution.get('details')}")
+                                diagnostics = execution.get("diagnostics", {})
+                                if diagnostics:
+                                    st.caption(
+                                        f"Disk: {diagnostics.get('disk', {}).get('status')} | "
+                                        f"Port: {diagnostics.get('port', {}).get('status')} | "
+                                        f"Docker: {diagnostics.get('docker', {}).get('status')}"
+                                    )
 
                 # Logs Section
                 if st.session_state.health_check_logs:
@@ -2720,259 +2821,53 @@ Provide JSON format response."""
             
             # -------- REMEDIATION WORKFLOW --------
             st.subheader("📋 REMEDIATION WORKFLOW")
+
+            st.markdown("**Demo Flow (5 Steps)**")
+            demo_col1, demo_col2, demo_col3, demo_col4, demo_col5 = st.columns(5)
+            with demo_col1:
+                st.caption("1. Download")
+            with demo_col2:
+                st.caption("2. Filter")
+            with demo_col3:
+                st.caption("3. Classify")
+            with demo_col4:
+                st.caption("4. Engage")
+            with demo_col5:
+                st.caption("5. TVT Validate")
             
             # Display vulnerabilities
             st.markdown(f"**Showing {len(filtered_vulns)} vulnerabilities to remediate:**")
             
             for vuln in filtered_vulns[:5]:  # Show first 5
-                with st.expander(f"🔴 {vuln.get('CVE_ID')} - {vuln.get('Component')} ({vuln.get('Severity')})"):
-                    col1, col2 = st.columns(2)
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([3, 2, 2])
                     with col1:
-                        st.markdown(f"**Severity:** {vuln.get('Severity')}")
-                        st.markdown(f"**CVSS:** {vuln.get('CVSS_Score')}")
-                        st.markdown(f"**Asset:** {vuln.get('Asset')}")
+                        st.write(f"**{vuln.get('CVE_ID')}**")
+                        st.caption(f"{vuln.get('Component')} | {vuln.get('Severity')}")
+                        st.caption(f"Asset: {vuln.get('Asset')}")
                     with col2:
-                        st.markdown(f"**Status:** {vuln.get('Status')}")
-                        st.markdown(f"**Detected:** {vuln.get('Detected_Date')}")
-                        st.markdown(f"**Component:** {vuln.get('Component')}")
-                    
-                    st.markdown(f"**Description:** {vuln.get('Description')}")
-                    st.markdown(f"**Remediation:** {vuln.get('Remediation')}")
-                    
-                    # Update status button
-                    if st.button(f"✅ Mark as REMEDIATED", key=f"remediate_{vuln.get('CVE_ID')}"):
-                        result = update_vulnerability_status(vuln.get('CVE_ID'), "REMEDIATED", "Fixed via agentic workflow")
-                        if result["success"]:
-                            st.success(f"✅ {vuln.get('CVE_ID')} marked as REMEDIATED in Tableau")
-                            # Refresh data
-                            st.rerun()
-                        else:
-                            st.error(f"❌ Failed to update: {result['error']}")
+                        st.write(f"Status: {vuln.get('Status')}")
+                        st.write(f"CVSS: {vuln.get('CVSS_Score')}")
+                        st.caption(f"Detected: {vuln.get('Detected_Date')}")
+                    with col3:
+                        st.write("Demo Actions")
+                        if st.button("Engage Team", key=f"engage_{vuln.get('CVE_ID')}"):
+                            st.success("✅ Team engaged (demo)")
+                        if st.button("Run TVT", key=f"tvt_{vuln.get('CVE_ID')}"):
+                            st.success("✅ TVT passed (demo)")
+
+                    with st.expander("Details", expanded=False):
+                        st.markdown(f"**Description:** {vuln.get('Description')}")
+                        st.markdown(f"**Remediation:** {vuln.get('Remediation')}")
+                        if st.button(f"✅ Mark as REMEDIATED", key=f"remediate_{vuln.get('CVE_ID')}"):
+                            result = update_vulnerability_status(vuln.get('CVE_ID'), "REMEDIATED", "Fixed via agentic workflow")
+                            if result["success"]:
+                                st.success(f"✅ {vuln.get('CVE_ID')} marked as REMEDIATED in Tableau")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to update: {result['error']}")
         else:
             st.info("📌 Click 'Sync Tableau Vulnerabilities' to load data")
-
-        
-        st.divider()
-        
-        # -------- FILTER: Remove Exempted & LLE --------
-        st.subheader("🗑️ FILTER - Remove Exempted & LLE Vulnerabilities")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Remove Exempted**")
-            if st.button("🚫 Filter Exempted", key="vuln_filter_exempt"):
-                st.info("🔍 Removing exempted vulnerabilities...")
-                pytime.sleep(0.3)
-                st.success("✅ Removed 5 exempted vulnerabilities | Remaining: 42")
-        
-        with col2:
-            st.markdown("**Filter LLE Vulnerabilities**")
-            if st.button("🔽 Filter LLE (Low/Low-Exploitable)", key="vuln_filter_lle"):
-                st.info("🔍 Removing Low/Low-Exploitable vulnerabilities...")
-                pytime.sleep(0.3)
-                st.success("✅ Removed 8 LLE vulnerabilities | Critical Remaining: 34")
-        
-        st.divider()
-        
-        # -------- CLASSIFICATION & TEAM ASSIGNMENT --------
-        st.subheader("🏷️ CLASSIFY - Vulnerability Type & Team Assignment")
-        
-        # Initialize session state for classifications
-        if "vuln_classifications" not in st.session_state:
-            st.session_state.vuln_classifications = {
-                "Microsoft/Windows": {
-                    "count": 12,
-                    "team": "MAPS Team",
-                    "action": "Patching Request",
-                    "followup": "TVT Post-Patching",
-                    "channel": "Jira"
-                },
-                "Middleware": {
-                    "count": 15,
-                    "team": "Middleware Team",
-                    "action": "Jira Request",
-                    "followup": "TVT Post-Patching",
-                    "channel": "Jira"
-                },
-                "Splunk": {
-                    "count": 7,
-                    "team": "BladeLogic Team",
-                    "action": "SDInfo Request",
-                    "followup": "BladeLogic Version Update",
-                    "channel": "SDInfo"
-                }
-            }
-        
-        # Display classification matrix
-        classification_data = []
-        for vuln_type, details in st.session_state.vuln_classifications.items():
-            classification_data.append({
-                "Vulnerability Type": vuln_type,
-                "Count": details["count"],
-                "Remediation Team": details["team"],
-                "Action Type": details["action"],
-                "Notification": details["channel"]
-            })
-        
-        st.dataframe(pd.DataFrame(classification_data), use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        # -------- ENGAGEMENT: Create Tickets & Notifications --------
-        st.subheader("📧 ENGAGE - Auto-Create Tickets & Notifications")
-        
-        agent_tabs = st.tabs(["🔧 MAPS Team (Microsoft/Windows)", "⚙️ Middleware Team", "🔐 Splunk/BladeLogic Team"])
-        
-        # ---- MAPS Team Tab ----
-        with agent_tabs[0]:
-            st.markdown("**Microsoft Edge, Windows Server Security Vulnerabilities**")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.info("📋 MAPS Team engagement for Windows/Microsoft stack patching")
-            with col2:
-                if st.button("📤 Engage MAPS", key="engage_maps"):
-                    st.success("✅ MAPS Team engaged - Jira ticket created: MAPS-2847")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Vulnerabilities", "12")
-            with col2:
-                st.metric("Ticket ID", "MAPS-2847")
-            with col3:
-                st.metric("Status", "In Progress")
-            
-            st.divider()
-            st.subheader("📝 MAPS Team Actions:")
-            
-            steps = [
-                "Step 1: Submit patching request via Jira",
-                "Step 2: Validate patch compatibility",
-                "Step 3: Deploy patches to non-prod first",
-                "Step 4: Execute TVT (Test & Verify) validation",
-                "Step 5: Deploy to production if TVT passes",
-                "Step 6: Verify patch status in Tableau"
-            ]
-            
-            if st.button("▶️ Start MAPS Remediation", key="start_maps_remediation"):
-                for i, step in enumerate(steps):
-                    st.info(f"{step}")
-                    pytime.sleep(0.2)
-                st.success("✅ MAPS remediation workflow completed")
-        
-        # ---- Middleware Team Tab ----
-        with agent_tabs[1]:
-            st.markdown("**Middleware Vulnerabilities (JBoss, Tomcat, etc.)**")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.info("📋 Middleware Team engagement via Jira for application server updates")
-            with col2:
-                if st.button("📤 Engage Middleware", key="engage_middleware"):
-                    st.success("✅ Middleware Team engaged - Jira ticket created: MIDWARE-5142")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Vulnerabilities", "15")
-            with col2:
-                st.metric("Ticket ID", "MIDWARE-5142")
-            with col3:
-                st.metric("Status", "In Progress")
-            
-            st.divider()
-            st.subheader("📝 Middleware Team Actions:")
-            
-            steps = [
-                "Step 1: Review vulnerability impact on middleware components",
-                "Step 2: Plan version upgrade/patch schedule",
-                "Step 3: Create test environment with latest versions",
-                "Step 4: Execute TVT (Test & Verify) on test environment",
-                "Step 5: Roll out to production in maintenance window",
-                "Step 6: Validate application functionality post-update",
-                "Step 7: Update vulnerability status in Tableau"
-            ]
-            
-            if st.button("▶️ Start Middleware Remediation", key="start_middleware_remediation"):
-                for i, step in enumerate(steps):
-                    st.info(f"{step}")
-                    pytime.sleep(0.2)
-                st.success("✅ Middleware remediation workflow completed")
-        
-        # ---- Splunk/BladeLogic Team Tab ----
-        with agent_tabs[2]:
-            st.markdown("**Splunk & BladeLogic Vulnerabilities**")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.info("📋 BladeLogic Team engagement via SDInfo for version updates")
-            with col2:
-                if st.button("📤 Engage BladeLogic", key="engage_bladelogic"):
-                    st.success("✅ BladeLogic Team engaged - SDInfo request created: SDINFO-7823")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Vulnerabilities", "7")
-            with col2:
-                st.metric("SDInfo Ticket", "SDINFO-7823")
-            with col3:
-                st.metric("Status", "In Progress")
-            
-            st.divider()
-            st.subheader("📝 BladeLogic Team Actions:")
-            
-            steps = [
-                "Step 1: Submit SDInfo request for latest BladeLogic installation",
-                "Step 2: Prepare rollback plan for current version",
-                "Step 3: Schedule installation in maintenance window",
-                "Step 4: Execute TVT validation post-installation",
-                "Step 5: Monitor Splunk/BladeLogic for stability",
-                "Step 6: Confirm vulnerability remediation in Tableau"
-            ]
-            
-            if st.button("▶️ Start BladeLogic Remediation", key="start_bladelogic_remediation"):
-                for i, step in enumerate(steps):
-                    st.info(f"{step}")
-                    pytime.sleep(0.2)
-                st.success("✅ BladeLogic remediation workflow completed")
-        
-        st.divider()
-        
-        # -------- VALIDATION: TVT Post-Patching --------
-        st.subheader("✅ VALIDATE - TVT (Test & Verify) Post-Patching")
-        
-        validation_col1, validation_col2 = st.columns(2)
-        
-        with validation_col1:
-            st.markdown("**Run TVT Validation**")
-            if st.button("🧪 Execute TVT Tests", key="run_tvt_tests"):
-                st.info("🔍 Running Test & Verify suite...")
-                pytime.sleep(0.3)
-                st.success("✅ TVT Tests Passed - All vulnerabilities remediated")
-                st.info("📊 CVE Status: Verified as patched in CVSS database")
-        
-        with validation_col2:
-            st.markdown("**Update Tableau**")
-            if st.button("📤 Publish Results to Tableau", key="publish_tvt_tableau"):
-                st.info("📡 Publishing TVT results to Tableau...")
-                pytime.sleep(0.3)
-                st.success("✅ Tableau updated - 34 vulnerabilities marked as REMEDIATED")
-        
-        st.divider()
-        
-        # -------- SUMMARY --------
-        st.subheader("📊 Remediation Summary")
-        
-        summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-        
-        with summary_col1:
-            st.metric("Downloaded", "47")
-        with summary_col2:
-            st.metric("Filtered Out", "13")
-        with summary_col3:
-            st.metric("In Remediation", "34")
-        with summary_col4:
-            st.metric("TVT Status", "✅ Passed")
 
     # --- Agentic Copilot tab ---
     with tabs[4]:
