@@ -198,15 +198,50 @@ async def problems_agent_status():
         "description": "Detects problems, auto-creates Jira if not solved by agents"
     }
 
-# ============== Tableau Mock API Endpoints ==============
+# ============== Tableau Real API Endpoints ==============
 
 import csv
 from pathlib import Path
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from integrations.tableau_client import get_tableau_client
+
+# Flag to use real Tableau or fallback to CSV
+USE_REAL_TABLEAU = os.getenv("USE_REAL_TABLEAU", "true").lower() == "true"
 
 def load_vulnerabilities():
-    """Load mock vulnerability data from CSV"""
-    csv_path = Path(__file__).parent.parent / "data" / "vulnerabilities.csv"
+    """
+    Load vulnerability data from Tableau or fallback to CSV
+    Set USE_REAL_TABLEAU=true in .env to use live Tableau data
+    """
     vulnerabilities = []
+    
+    # Try real Tableau first if enabled
+    if USE_REAL_TABLEAU:
+        try:
+            logger.info("🔄 Fetching vulnerabilities from Tableau Server...")
+            tableau_client = get_tableau_client()
+            workbook_name = os.getenv("TABLEAU_WORKBOOK_NAME", "")
+            view_name = os.getenv("TABLEAU_VIEW_NAME", "")
+            
+            vulnerabilities = tableau_client.fetch_view_data(
+                view_name=view_name if view_name else None,
+                workbook_name=workbook_name if workbook_name else None
+            )
+            
+            if vulnerabilities:
+                logger.info(f"✅ Loaded {len(vulnerabilities)} vulnerabilities from Tableau")
+                return vulnerabilities
+            else:
+                logger.warning("⚠️ No data from Tableau, falling back to CSV")
+        except Exception as e:
+            logger.error(f"❌ Tableau fetch failed: {e}, falling back to CSV")
+    
+    # Fallback to CSV mock data
+    csv_path = Path(__file__).parent.parent / "data" / "vulnerabilities.csv"
     
     if not csv_path.exists():
         logger.warning(f"Vulnerabilities CSV not found at {csv_path}")
@@ -217,16 +252,16 @@ def load_vulnerabilities():
             reader = csv.DictReader(f)
             for row in reader:
                 vulnerabilities.append(row)
-        logger.info(f"✅ Loaded {len(vulnerabilities)} vulnerabilities from {csv_path}")
+        logger.info(f"✅ Loaded {len(vulnerabilities)} vulnerabilities from CSV (mock data)")
     except Exception as e:
-        logger.error(f"❌ Failed to load vulnerabilities: {e}")
+        logger.error(f"❌ Failed to load vulnerabilities from CSV: {e}")
     
     return vulnerabilities
 
 @app.get("/api/tableau/vulnerabilities")
 async def fetch_tableau_vulnerabilities(status: Optional[str] = None):
     """
-    Fetch vulnerabilities from mock Tableau
+    Fetch vulnerabilities from Tableau Server (or CSV fallback)
     Optional filters: status=OPEN|REMEDIATED
     """
     vulnerabilities = load_vulnerabilities()
