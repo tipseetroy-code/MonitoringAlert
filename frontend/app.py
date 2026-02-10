@@ -2776,9 +2776,10 @@ def main_app():
                 # Fetch from Tableau API
                 result = fetch_tableau_vulnerabilities()
                 if result["success"]:
-                    data = result["data"]
-                    st.session_state.tableau_vulnerabilities = data.get("data", [])
-                    st.success(f"✅ Downloaded {data.get('count', 0)} vulnerabilities from Tableau")
+                    data = result["data"]  # This is already the list of vulnerabilities
+                    st.session_state.tableau_vulnerabilities = data
+                    source_msg = " (from CSV fallback)" if result.get("source") == "CSV_FALLBACK" else ""
+                    st.success(f"✅ Downloaded {len(data)} vulnerabilities from Tableau{source_msg}")
                 else:
                     st.error(f"❌ {result['error']}")
                 
