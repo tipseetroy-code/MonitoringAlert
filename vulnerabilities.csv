@@ -1,0 +1,11 @@
+CVE_ID,Title,Severity,Affected_Component,Description,Status,Discovered_Date,Remediation_Deadline,Assigned_Team
+CVE-2024-001,Microsoft Edge Security Vulnerability,High,Microsoft Edge,Security vulnerability in Microsoft Edge browser requiring immediate patching,Open,2024-02-01,2024-02-15,
+CVE-2024-002,Windows Server 2019 RCE,Critical,Windows Server 2019,Remote Code Execution vulnerability in Windows Server 2019,Open,2024-02-01,2024-02-10,
+CVE-2024-003,Apache Tomcat Authentication Bypass,High,Apache Tomcat 9.0,Middleware authentication bypass vulnerability in Tomcat,Open,2024-02-02,2024-02-16,
+CVE-2024-004,WebLogic Server RCE,Critical,Oracle WebLogic,Remote code execution in WebLogic middleware component,Open,2024-02-03,2024-02-11,
+CVE-2024-005,Splunk Enterprise Information Disclosure,Medium,Splunk Enterprise 9.0,Information disclosure vulnerability in Splunk requiring BladeLogic update,Open,2024-02-04,2024-02-20,
+CVE-2024-006,Splunk Universal Forwarder XSS,Medium,Splunk Universal Forwarder,Cross-site scripting vulnerability in Splunk component,Open,2024-02-05,2024-02-22,
+CVE-2024-007,JBoss EAP Arbitrary Code Execution,High,JBoss EAP 7.4,Middleware arbitrary code execution in JBoss Enterprise Application Platform,Open,2024-02-06,2024-02-18,
+CVE-2024-008,Windows Server 2022 Privilege Escalation,Critical,Windows Server 2022,Privilege escalation vulnerability in Windows Server,Open,2024-02-07,2024-02-12,
+CVE-2024-009,IBM WebSphere Memory Corruption,High,IBM WebSphere,Memory corruption vulnerability in WebSphere middleware,Open,2024-02-08,2024-02-19,
+CVE-2024-010,Splunk Cloud Platform DoS,Medium,Splunk Cloud Platform,Denial of Service vulnerability requiring BladeLogic patch,Open,2024-02-09,2024-02-24,

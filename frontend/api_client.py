@@ -94,7 +94,7 @@ def get_agent_decisions(limit=50):
 
 # ============= Tableau Mock API Functions =============
 def fetch_tableau_vulnerabilities(status=None):
-    """Fetch vulnerabilities from mock Tableau"""
+    """Fetch vulnerabilities from Tableau API with CSV fallback"""
     try:
         url = f"{AGENT_SERVER_URL}/api/tableau/vulnerabilities"
         if status:
@@ -103,6 +103,19 @@ def fetch_tableau_vulnerabilities(status=None):
         response.raise_for_status()
         return {"success": True, "data": response.json()}
     except requests.exceptions.RequestException as e:
+        # Fallback to local CSV file
+        import csv
+        import os
+        csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vulnerabilities.csv")
+        if os.path.exists(csv_path):
+            vulnerabilities = []
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if status and row.get('Status', '').lower() != status.lower():
+                        continue
+                    vulnerabilities.append(row)
+            return {"success": True, "data": vulnerabilities, "source": "CSV_FALLBACK"}
         return {"success": False, "error": f"Failed to fetch from Tableau: {str(e)}"}
 
 def fetch_tableau_summary():
