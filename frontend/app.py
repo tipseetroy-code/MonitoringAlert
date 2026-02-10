@@ -54,7 +54,8 @@ def load_apps_csv(file_path="apps.csv"):
                     apps.append({
                         "AppName": row["AppName"],
                         "URL": row["URL"],
-                        "Expected": row["Expected"]
+                        "DockerContainer": row.get("DockerContainer", ""),
+                        "Expected": row.get("Expected", "")
                     })
     except Exception as e:
         st.error(f"Error loading apps.csv: {str(e)}")
@@ -2003,7 +2004,17 @@ def main_app():
                         with col1:
                             st.write(f"{color_icon} **{result['AppName']}**")
                         with col2:
-                            st.write(f"`{result['URL']}`")
+                            # Find the original app to get DockerContainer info
+                            docker_container = ""
+                            for app in st.session_state.apps:
+                                if app["AppName"] == result["AppName"]:
+                                    docker_container = app.get("DockerContainer", "")
+                                    break
+                            
+                            # Display URL and DockerContainer in single column
+                            st.write(f"**URL:** `{result['URL']}`")
+                            if docker_container:
+                                st.write(f"**Container:** `{docker_container}`")
                         with col3:
                             st.write(f"**{result['Status']}**")
                         with col4:
