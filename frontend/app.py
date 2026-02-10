@@ -11,11 +11,16 @@ from api_client import (
 )
 # --------- ADDITIONAL IMPORTS (safe, no backend dependency) ----------
 from datetime import datetime, timezone, time, timedelta
+from typing import Dict
 import json
 import re
 import html
 import csv
 import os
+import shutil
+import socket
+import subprocess
+from urllib.parse import urlparse
 
 import time as pytime
 
@@ -69,6 +74,7 @@ def check_app_health(app):
         return {
             "AppName": app["AppName"],
             "URL": app["URL"],
+            "DockerContainer": app.get("DockerContainer", ""),
             "Status": 200,
             "Result": "✅ OK",
             "Color": "green"
@@ -77,10 +83,81 @@ def check_app_health(app):
         return {
             "AppName": app["AppName"],
             "URL": app["URL"],
+            "DockerContainer": app.get("DockerContainer", ""),
             "Status": "N/A",
             "Result": f"❌ Error: {str(e)[:30]}",
             "Color": "red"
         }
+
+
+def _disk_space_diagnostics(min_free_pct: int = 10) -> Dict[str, str]:
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    drive = os.path.splitdrive(base_dir)[0] + os.sep
+    try:
+        usage = shutil.disk_usage(drive)
+        free_pct = (usage.free / usage.total) * 100 if usage.total else 0
+        status = "ok" if free_pct >= min_free_pct else "low"
+        return {
+            "status": status,
+            "free_pct": f"{free_pct:.1f}",
+            "drive": drive,
+        }
+    except Exception as exc:
+        return {
+            "status": "unknown",
+            "error": str(exc),
+            "drive": drive,
+        }
+
+
+def _port_conflict_diagnostics(url: str) -> Dict[str, str]:
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        port = parsed.port
+        if not port or host not in {"localhost", "127.0.0.1"}:
+            return {"status": "skipped"}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            in_use = sock.connect_ex((host, port)) == 0
+        return {
+            "status": "in_use" if in_use else "free",
+            "host": host,
+            "port": str(port),
+        }
+    except Exception as exc:
+        return {"status": "unknown", "error": str(exc)}
+
+
+def _docker_status(container_name: str) -> Dict[str, str]:
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+            capture_output=True,
+            text=True,
+            timeout=6,
+        )
+        if result.returncode != 0:
+            return {"status": "unknown", "error": result.stderr.strip()}
+        return {"status": result.stdout.strip()}
+    except Exception as exc:
+        return {"status": "unknown", "error": str(exc)}
+
+
+def _restart_docker(container_name: str) -> Dict[str, str]:
+    try:
+        result = subprocess.run(
+            ["docker", "restart", container_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return {"success": "false", "error": result.stderr.strip()}
+        return {"success": "true", "output": result.stdout.strip()}
+    except Exception as exc:
+        return {"success": "false", "error": str(exc)}
 
 
 def _incident_memory_path():
@@ -153,9 +230,31 @@ def agentic_reason_and_decide(result, memory, policy):
 
 
 def agentic_execute_restart(result):
+    container = result.get("DockerContainer") or ""
+    if not container:
+        return {
+            "outcome": "resolved",
+            "details": "Restart simulated and service recovered",
+        }
+
+    diagnostics = {
+        "disk": _disk_space_diagnostics(),
+        "port": _port_conflict_diagnostics(result.get("URL", "")),
+        "docker": _docker_status(container),
+    }
+
+    restart_result = _restart_docker(container)
+    if restart_result.get("success") == "true":
+        return {
+            "outcome": "resolved",
+            "details": f"Docker restart executed for {container}",
+            "diagnostics": diagnostics,
+        }
+
     return {
-        "outcome": "resolved",
-        "details": "Restart simulated and service recovered",
+        "outcome": "failed",
+        "details": f"Docker restart failed for {container}: {restart_result.get('error', 'unknown error')}",
+        "diagnostics": diagnostics,
     }
 
 
@@ -1755,13 +1854,6 @@ def main_app():
             # Health Check Execution
             st.subheader("📊 Health Check Execution")
 
-            live_health_url = st.text_input(
-                "Live Health URL",
-                value="http://18.237.102.97:8000/health/epas",
-                help="Optional: Use a single live URL for health check"
-            )
-            use_live_url = st.checkbox("Use Live URL for health check", value=False)
-
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -1828,13 +1920,7 @@ def main_app():
             
             if run_health_check:
                 with st.spinner("Running health checks..."):
-                    apps_to_check = st.session_state.apps
-                    if use_live_url and live_health_url:
-                        apps_to_check = [{
-                            "AppName": "Live Health URL",
-                            "URL": live_health_url,
-                            "Expected": "200"
-                        }]
+                    apps_to_check = list(st.session_state.apps)
 
                     st.session_state.health_check_logs.append(
                         f"{utc_now()} | RUN_START | total_apps={len(apps_to_check)}"

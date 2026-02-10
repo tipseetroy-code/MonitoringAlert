@@ -208,6 +208,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from integrations.tableau_client import get_tableau_client
+from .vulnerability_endpoints import register_vulnerability_endpoints
 
 # Flag to use real Tableau or fallback to CSV
 USE_REAL_TABLEAU = os.getenv("USE_REAL_TABLEAU", "true").lower() == "true"
@@ -257,6 +258,9 @@ def load_vulnerabilities():
         logger.error(f"❌ Failed to load vulnerabilities from CSV: {e}")
     
     return vulnerabilities
+
+# Register AI vulnerability triage endpoints
+register_vulnerability_endpoints(app, load_vulnerabilities)
 
 @app.get("/api/tableau/vulnerabilities")
 async def fetch_tableau_vulnerabilities(status: Optional[str] = None):

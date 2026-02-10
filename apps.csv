@@ -6,3 +6,4 @@ OrderService,http://localhost:8084,order-service,
 InventoryAPI,http://localhost:8085,inventory-api,
 FlakyService,http://localhost:8086,flaky-service,
 EPAS_Health_Check,http://18.237.102.97:8000/health/epas,EPAS_Service,OK
+TestNginx,http://18.237.102.97:8090,test-nginx,
