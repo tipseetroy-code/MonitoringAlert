@@ -9,6 +9,7 @@ import json
 import logging
 from typing import Dict, List, Optional
 from google import genai
+from groq import Groq
 from functools import lru_cache
 import hashlib
 
@@ -20,30 +21,39 @@ class CopilotKBAPI:
     - No Excel row limits
     - Real-time AI-powered responses
     - Caching for performance
-    - Multi-model support (Google Gemini, OpenAI, etc.)
+    - Multi-model support (Groq, Google Gemini, etc.)
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "models/gemini-2.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "models/gemini-2.5-flash", use_groq: bool = True):
         """
         Initialize Copilot KB API
         
         Args:
             api_key: Google API key (or fetch from env)
             model: Model to use (models/gemini-2.5-flash, etc.)
+            use_groq: Use Groq API (higher quota) if available
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model_name = self._normalize_model(model)
+        self.use_groq = use_groq
         
-        if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY not set. Please set environment variable.")
+        # Initialize Groq if enabled
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        self.groq_client = Groq(api_key=groq_api_key) if use_groq and groq_api_key else None
         
-        # Initialize Gemini (google-genai client)
-        self.client = genai.Client(api_key=self.api_key)
+        # Initialize Gemini as fallback
+        if self.api_key:
+            self.client = genai.Client(api_key=self.api_key)
+        else:
+            self.client = None
+            if not self.groq_client:
+                raise ValueError("No API key configured. Set GOOGLE_API_KEY or GROQ_API_KEY.")
         
         # Knowledge base cache
         self.kb_cache = {}
         
-        logger.info(f"✅ CopilotKBAPI initialized with model: {self.model_name}")
+        provider = "Groq" if self.groq_client and use_groq else "Gemini"
+        logger.info(f"✅ CopilotKBAPI initialized with {provider} (model: {self.model_name})")
 
     def _normalize_model(self, model: str) -> str:
         """Normalize model names for google-genai."""
@@ -51,11 +61,29 @@ class CopilotKBAPI:
         return model
 
     def _generate_text(self, prompt: str) -> str:
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt
-        )
-        return getattr(response, "text", str(response))
+        """Generate text using Groq (primary) or Gemini (fallback)"""
+        try:
+            # Try Groq first (higher quota, faster)
+            if self.groq_client and self.use_groq:
+                response = self.groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=2048
+                )
+                return response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Groq API failed, falling back to Gemini: {str(e)}")
+        
+        # Fallback to Gemini
+        if self.client:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            return getattr(response, "text", str(response))
+        
+        raise ValueError("No AI provider available")
     
     @lru_cache(maxsize=128)
     def query_vulnerability(self, vulnerability_id: str, cve: str = "") -> Dict:

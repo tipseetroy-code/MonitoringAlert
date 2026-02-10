@@ -17,11 +17,30 @@ from enum import Enum
 import threading
 import time
 from google import genai
+from groq import Groq
 import requests
 
 logger = logging.getLogger(__name__)
 
+# Initialize API clients
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
 # ============== Helper Functions ==============
+def call_groq_llm(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+    """Call Groq API for LLM inference (fast and high quota)"""
+    try:
+        response = groq_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=1024
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Groq API error: {str(e)}")
+        return "{}"
+
 def extract_json_from_response(text: str) -> Dict:
     """Extract JSON from Gemini response (handles markdown wrapping)"""
     if not text:
@@ -119,7 +138,7 @@ class SSLCertificateAgent:
         ]
     
     async def _analyze_certificate(self, cert: Dict) -> Optional[AgentDecision]:
-        """Use LLM to analyze certificate and decide action"""
+        """Use LLM to analyze certificate and decide action (Groq with Gemini fallback)"""
         prompt = f"""
         Analyze this SSL certificate and decide the action:
         Domain: {cert['domain']}
@@ -140,12 +159,19 @@ class SSLCertificateAgent:
         """
         
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt
-            )
-            
-            data = extract_json_from_response(response.text)
+            # Try Groq first (higher quota, faster)
+            if groq_client:
+                logger.info("🚀 Using Groq AI for SSL analysis")
+                response_text = call_groq_llm(prompt)
+                data = extract_json_from_response(response_text)
+            else:
+                # Fallback to Gemini
+                logger.info("🔄 Using Gemini for SSL analysis")
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt
+                )
+                data = extract_json_from_response(response.text)
             
             return AgentDecision(
                 agent_name=self.name,
@@ -221,7 +247,7 @@ class VulnerabilityRemediationAgent:
         ]
     
     async def _assess_vulnerability(self, vuln: Dict) -> Optional[AgentDecision]:
-        """LLM-powered vulnerability assessment & remediation decision"""
+        """LLM-powered vulnerability assessment (Groq with Gemini fallback)"""
         prompt = f"""
         Assess this vulnerability for autonomous remediation:
         CVE: {vuln['cve']}
@@ -243,12 +269,19 @@ class VulnerabilityRemediationAgent:
         """
         
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt
-            )
-            
-            data = extract_json_from_response(response.text)
+            # Try Groq first (higher quota)
+            if groq_client:
+                logger.info("🚀 Using Groq AI for vulnerability analysis")
+                response_text = call_groq_llm(prompt)
+                data = extract_json_from_response(response_text)
+            else:
+                # Fallback to Gemini
+                logger.info("🔄 Using Gemini for vulnerability analysis")
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt
+                )
+                data = extract_json_from_response(response.text)
             
             return AgentDecision(
                 agent_name=self.name,
@@ -580,13 +613,23 @@ class AutonomousAgentService:
         logger.info("✅ Autonomous Agent Service initialized")
     
     def start(self):
-        """Start all agents in background"""
+        """Start all agents in background (only if AUTO_RUN_AGENTS=true)"""
         if self.running:
             logger.warning("Service already running")
             return
         
+        # Check if auto-run is enabled
+        auto_run = os.getenv("AUTO_RUN_AGENTS", "false").lower() == "true"
+        
+        if not auto_run:
+            logger.info("⏸️  AUTO_RUN_AGENTS=false - Agents are in MANUAL mode (won't consume API quota)")
+            logger.info("💡 Agents will only run when triggered via API endpoints")
+            logger.info("💡 To enable automatic monitoring, set AUTO_RUN_AGENTS=true in .env")
+            self.running = False  # Keep agents stopped
+            return
+        
         self.running = True
-        logger.info("🚀 Starting Autonomous Agent Service...")
+        logger.info("🚀 Starting Autonomous Agent Service (AUTO_RUN_AGENTS=true)...")
         
         # Start each agent in separate thread with its own event loop
         for agent_name, agent in self.agents.items():
