@@ -1097,7 +1097,7 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
     general_keywords = {
         "confluence": "📘 **Confluence Documentation**\n\nTo access Confluence KB:\n\n**Main KB URL:** https://teammeenakshi.atlassian.net/wiki/x/AgAH\n\n**Common Pages:**\n- SSL Certificate Renewal SOPs\n- Self-Healing Procedures\n- Deployment Guidelines\n- Incident Response Runbooks\n- Application Monitoring Setup\n\n**Search Tips:**\n- Ask specific questions like 'SSL renewal process'\n- Search by CVE ID or vulnerability name\n- Look for SOP documentation by service name\n\nOr visit the link above to browse all documentation!",
         
-        "trading": "📊 **Trading Information**\n\nThis is an IT monitoring system. For trading applications, please check:\n- Trading platform status in the Health Check Monitoring tab\n- Market data feeds and connectivity\n- Application performance metrics\n\nIf you need trading-specific help, please contact the Trading Support team.",
+        "trading": "📊 **Trading Application Documentation**\n\nAccess the Trading Application guide:\n\n🔗 **Trading App Wiki:** https://teammeenakshi.atlassian.net/wiki/x/AgAg\n\nFor trading applications, you can also check:\n- Trading platform status in the Health Check Monitoring tab\n- Market data feeds and connectivity\n- Application performance metrics\n\nIf you need additional trading-specific help, please contact the Trading Support team.",
         
         "help": "💡 **Available Commands:**\n\n**SSL Certificates:**\n- 'renew SSL for [domain]'\n- 'vault SSL for [domain]'\n\n**Self-Healing:**\n- 'disk space issue'\n- 'app down'\n- 'url down'\n\n**Deployments:**\n- 'deployment status'\n\n**AutoSys:**\n- 'status job [name]'\n\n**Health Monitoring:**\n- Check service health\n- Docker container status\n- Auto-restart diagnostics\n\nOr simply ask me a question!",
         
@@ -1105,7 +1105,9 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
         
         "price": "💰 For pricing information, please contact:\n- Finance team for cost-related queries\n- Trading desk for market prices\n- Your manager for budget approval\n\nThis system focuses on IT operations and monitoring.",
         
-        "stock": "📈 Stock/Market Information:\n\nThis is an IT monitoring tool. For stock information:\n- Check market data feed status in Health Monitoring\n- Verify trading platform connectivity\n- Review application logs for data issues\n\nFor actual stock prices, use your trading terminal or financial data provider.",
+        "portfolio": "📈 **Stock Portfolio Documentation**\n\nAccess the Stock Portfolio guide:\n\n🔗 **Stock Portfolio Wiki:** https://teammeenakshi.atlassian.net/wiki/x/AYAm\n\nFor stock portfolio management, you can also check:\n- Portfolio data feed status in Health Monitoring\n- Market data connectivity and performance\n- Application logs for data issues\n\nFor actual stock prices, use your trading terminal or financial data provider.",
+        
+        "stock": "📈 **Stock/Market & Portfolio Information:**\n\nFor portfolio management, visit:\n🔗 **Stock Portfolio Wiki:** https://teammeenakshi.atlassian.net/wiki/x/AYAm\n\nYou can also check:\n- Market data feed status in Health Monitoring\n- Verify trading platform connectivity\n- Review application logs for data issues\n\nFor actual stock prices, use your trading terminal or financial data provider.",
         
         "weather": "🌤️ For weather information, try:\n- weather.com\n- Google 'weather [city]'\n\nThis is an IT monitoring system focused on infrastructure health.",
         
