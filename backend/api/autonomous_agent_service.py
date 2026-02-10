@@ -113,7 +113,7 @@ class SSLCertificateAgent:
         """Continuously monitor SSL certificates"""
         while True:
             try:
-                # Fetch certs from Venefi/Let's Encrypt/Portal
+                # Fetch certs from Venafi/Let's Encrypt/Portal
                 certs = await self._fetch_certificates()
                 
                 for cert in certs:
@@ -131,7 +131,7 @@ class SSLCertificateAgent:
     
     async def _fetch_certificates(self) -> List[Dict]:
         """Fetch certificates from all sources"""
-        # Placeholder: would call Venefi API, Let's Encrypt, Portal
+        # Placeholder: would call Venafi API, Let's Encrypt, Portal
         return [
             {"domain": "api.example.com", "expires_in_days": 15, "status": "valid"},
             {"domain": "web.example.com", "expires_in_days": 3, "status": "critical"},
@@ -202,7 +202,7 @@ class SSLCertificateAgent:
     async def _autonomous_renew(self, cert: Dict) -> Dict:
         """Autonomous certificate renewal (stub)"""
         logger.info(f"🔄 Renewing certificate for {cert['domain']}...")
-        # Placeholder: Would call Venefi/Let's Encrypt APIs
+        # Placeholder: Would call Venafi/Let's Encrypt APIs
         return {"success": True, "domain": cert["domain"], "renewed_at": datetime.now().isoformat()}
     
     async def _create_jira_and_notify(self, decision: AgentDecision):

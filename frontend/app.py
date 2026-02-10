@@ -2095,7 +2095,7 @@ def main_app():
         # SSL Agentic Flow Overview
         st.markdown("""
         **SSL Certificate Management Flow:**
-        1. 🔍 **PERCEPTION** → Fetch from Venefi / Let's Encrypt / Certificate Portal
+        1. 🔍 **PERCEPTION** → Fetch from Venafi / Let's Encrypt / Certificate Portal
         2. 🧠 **LLM BRAIN** → OpenAI / Gemini SDK for analysis
         3. 📦 **STORAGE** → Vector DB, S3, MySQL persistence
         4. 🤖 **AGENT LAYER** → Autonomous agents handling verification & renewal
@@ -2109,10 +2109,10 @@ def main_app():
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("**Venefi**")
-            if st.button("🔄 Sync Venefi", key="ssl_sync_venefi"):
-                st.info("📡 Fetching certificates from Venefi portal...")
-                st.success("✅ Synced 12 certificates from Venefi")
+            st.markdown("**Venafi**")
+            if st.button("🔄 Sync Venafi", key="ssl_sync_venafi"):
+                st.info("📡 Fetching certificates from Venafi portal...")
+                st.success("✅ Synced 12 certificates from Venafi")
         
         with col2:
             st.markdown("**Let's Encrypt**")
