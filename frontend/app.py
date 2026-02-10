@@ -432,9 +432,9 @@ def load_policy():
     path = _policy_path()
     default_policy = {
         "allow_restart": True,
-        "require_approval": True,
+        "require_approval": False,  # ✅ Approval disabled for 24/7 restart
         "max_restarts_per_day": 2,
-        "change_window": {"start_hour": 9, "end_hour": 18},
+        "change_window": {"start_hour": 0, "end_hour": 24},  # ✅ 24/7 enabled (0-24 hours)
     }
     try:
         if os.path.exists(path):
@@ -2035,7 +2035,7 @@ def main_app():
                         "Change window start hour",
                         min_value=0,
                         max_value=23,
-                        value=int(policy.get("change_window", {}).get("start_hour", 9)),
+                        value=int(policy.get("change_window", {}).get("start_hour", 0)),
                         step=1
                     )
                 with col_b:
@@ -2043,7 +2043,7 @@ def main_app():
                         "Change window end hour",
                         min_value=1,
                         max_value=24,
-                        value=int(policy.get("change_window", {}).get("end_hour", 18)),
+                        value=int(policy.get("change_window", {}).get("end_hour", 24)),
                         step=1
                     )
 
