@@ -655,6 +655,28 @@ class AutonomousAgentService:
         self.running = False
         logger.info("🛑 Stopping Autonomous Agent Service...")
     
+    def run_agents_manual(self):
+        """Manually trigger agents once (ignores AUTO_RUN_AGENTS=false)"""
+        logger.info("🎯 Manual Agent Trigger - Running all agents once...")
+        
+        # Run each agent once in a background thread (non-blocking)
+        for agent_name, agent in self.agents.items():
+            def run_once(ag):
+                try:
+                    logger.info(f"▶️  Manually running {ag.name}...")
+                    asyncio.run(ag.analyze())
+                    logger.info(f"✅ {ag.name} completed manual run")
+                except Exception as e:
+                    logger.error(f"❌ {ag.name} failed during manual run: {str(e)}")
+            
+            thread = threading.Thread(
+                target=run_once,
+                args=(agent,),
+                daemon=True,
+                name=f"manual-trigger-{agent_name}"
+            )
+            thread.start()
+    
     def get_status(self) -> Dict:
         """Get service status"""
         return {

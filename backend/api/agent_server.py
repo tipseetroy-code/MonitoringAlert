@@ -54,7 +54,8 @@ async def root():
             "status": "/api/agents/status",
             "decisions": "/api/agents/decisions",
             "start": "/api/agents/start",
-            "stop": "/api/agents/stop"
+            "stop": "/api/agents/stop",
+            "trigger_manual": "/api/agents/trigger (ignores AUTO_RUN_AGENTS setting)"
         }
     }
 
@@ -98,6 +99,19 @@ async def stop_agents():
     service.stop()
     return {
         "message": "✅ All agents stopped",
+        "status": service.get_status()
+    }
+
+@app.post("/api/agents/trigger")
+async def trigger_agents_manual():
+    """Manually trigger all agents once (ignores AUTO_RUN_AGENTS setting)"""
+    if not service:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+    
+    service.run_agents_manual()
+    return {
+        "message": "🎯 Agents triggered! Running analysis now...",
+        "note": "All agents will run once, regardless of AUTO_RUN_AGENTS setting",
         "status": service.get_status()
     }
 
