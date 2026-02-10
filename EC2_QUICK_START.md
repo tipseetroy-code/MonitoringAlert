@@ -81,7 +81,7 @@ curl http://localhost:8000/health
 ### Step 7: Start Streamlit (in 3rd terminal)
 ```bash
 cd ~/MonitoringAlert
-python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
+python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0
 ```
 
 **Output should show:**
@@ -100,7 +100,7 @@ Network URL: http://0.0.0.0:8501
 nohup python3 -m uvicorn backend.api.copilot_kb_api:app --host 0.0.0.0 --port 8000 > kb_api.log 2>&1 &
 
 # Start Streamlit in background
-nohup python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0 > streamlit.log 2>&1 &
+nohup python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0 > streamlit.log 2>&1 &
 
 # Check logs
 tail -f kb_api.log
@@ -116,7 +116,7 @@ python3 -m uvicorn backend.api.copilot_kb_api:app --host 0.0.0.0 --port 8000
 
 # Terminal 2: Streamlit
 screen -S streamlit
-python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
+python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0
 # Press Ctrl+A then D to detach
 
 # Reattach to screens
@@ -266,7 +266,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/MonitoringAlert
-ExecStart=/home/ubuntu/MonitoringAlert/venv/bin/python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
+ExecStart=/home/ubuntu/MonitoringAlert/venv/bin/python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0
 Restart=always
 RestartSec=10
 
@@ -306,7 +306,7 @@ sudo systemctl restart copilot-kb
 | `source venv/bin/activate` | Activate environment |
 | `pip3 install -r backend/requirements.txt` | Install dependencies |
 | `python3 -m uvicorn backend.api.copilot_kb_api:app --host 0.0.0.0 --port 8000` | Start API |
-| `python3 -m streamlit run frontend/app.py --server.port 8501` | Start Streamlit |
+| `python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501` | Start Streamlit |
 | `curl http://localhost:8000/health` | Test API |
 | `tail -f kb_api.log` | View API logs |
 

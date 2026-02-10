@@ -1,11 +1,11 @@
 Domain,Status,Expiry,IssuerCN,DaysRemaining,VaultLocation,LastRenewed
-example.com,Expired,2026-12-31,Let's Encrypt,332,vault://secret/ssl/example.com,2026-01-15
-api.example.com,Expired,2026-11-30,DigiCert,301,vault://secret/ssl/api.example.com,2026-01-10
-old.example.com,Expired,2025-06-15,-151,Comodo,Not Vaulted,2024-05-01
+example.com,Valid,2026-05-11,Let's Encrypt,90,vault://secret/ssl/example.com,2026-02-10
+api.example.com,Valid,2026-05-11,DigiCert,90,vault://secret/ssl/api.example.com,2026-02-10
+old.example.com,Valid,2026-05-11,-151,90,Not Vaulted,2026-02-10
 secure.example.com,Expiring Soon,2026-02-28,25,Let's Encrypt,vault://secret/ssl/secure.example.com,2025-12-01
-dev.example.com,Expired,2027-03-15,405,Self-Signed,vault://secret/ssl/dev.example.com,2026-01-20
-prod.mycompany.com,Expired,2026-10-20,260,DigiCert,vault://secret/ssl/prod.mycompany.com,2025-11-15
-staging.mycompany.com,Expired,2026-09-30,240,Let's Encrypt,vault://secret/ssl/staging.mycompany.com,2025-10-01
+dev.example.com,Valid,2026-05-11,405,90,vault://secret/ssl/dev.example.com,2026-02-10
+prod.mycompany.com,Valid,2026-05-11,260,90,vault://secret/ssl/prod.mycompany.com,2026-02-10
+staging.mycompany.com,Valid,2026-05-11,240,90,vault://secret/ssl/staging.mycompany.com,2026-02-10
 vpn.company.net,Expiring Soon,2026-03-10,35,GlobalSign,vault://secret/ssl/vpn.company.net,2025-09-15
-mail.company.net,Expired,2027-01-20,352,DigiCert,vault://secret/ssl/mail.company.net,2026-01-05
+mail.company.net,Valid,2026-05-11,352,90,vault://secret/ssl/mail.company.net,2026-02-10
 test.localhost,Valid,2027-02-10,-63,364,Not Vaulted,2026-02-10

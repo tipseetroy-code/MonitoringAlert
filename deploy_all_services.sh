@@ -91,7 +91,7 @@ sleep 2
 
 # Start Streamlit Dashboard
 echo "📱 Starting Streamlit Dashboard (port 8501)..."
-nohup python3 -m streamlit run frontend/app.py \
+nohup python3 -m streamlit run frontend/perception_and_action_hub.py \
     --server.port 8501 \
     --server.address 0.0.0.0 \
     > logs/streamlit.log 2>&1 &

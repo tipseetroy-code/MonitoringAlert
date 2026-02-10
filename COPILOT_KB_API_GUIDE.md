@@ -513,7 +513,7 @@ curl http://localhost:8000/health
 export COPILOT_KB_API="http://18.237.102.97:8000"
 
 # Start Streamlit (port 8501)
-python -m streamlit run frontend/app.py --server.port 8501
+python -m streamlit run frontend/perception_and_action_hub.py --server.port 8501
 ```
 
 ---

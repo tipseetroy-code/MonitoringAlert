@@ -73,7 +73,7 @@ ssh -i $KEY_PATH ${EC2_USER}@${EC2_IP} @"
     sleep 1
     
     # Start Streamlit
-    nohup python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0 > logs/streamlit.log 2>&1 &
+    nohup python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0 > logs/streamlit.log 2>&1 &
     sleep 2
     
     echo "Services started. Checking status..."

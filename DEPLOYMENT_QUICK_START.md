@@ -156,7 +156,7 @@ sudo pkill -9 streamlit
 cd /root/MonitoringAlert
 
 # Start Streamlit
-streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501 &
+streamlit run frontend/perception_and_action_hub.py --server.address 0.0.0.0 --server.port 8501 &
 ```
 
 ## Step 8: Test Each Component

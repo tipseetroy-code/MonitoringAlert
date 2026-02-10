@@ -28,7 +28,7 @@ sleep 2
 
 echo ""
 echo "=== Starting Streamlit with Confluence integration ==="
-nohup streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501 > streamlit.log 2>&1 &
+nohup streamlit run frontend/perception_and_action_hub.py --server.address 0.0.0.0 --server.port 8501 > streamlit.log 2>&1 &
 
 echo ""
 echo "=== Waiting for Streamlit to start ==="

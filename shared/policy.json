@@ -1,0 +1,9 @@
+{
+  "allow_restart": true,
+  "require_approval": false,
+  "max_restarts_per_day": 1,
+  "change_window": {
+    "start_hour": 0,
+    "end_hour": 24
+  }
+}

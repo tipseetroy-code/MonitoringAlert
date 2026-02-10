@@ -108,7 +108,7 @@ echo "Starting Streamlit on port 8501..."
 touch streamlit.log
 
 # Run in background
-nohup python3 -m streamlit run frontend/app.py \
+nohup python3 -m streamlit run frontend/perception_and_action_hub.py \
     --server.port 8501 \
     --server.address 0.0.0.0 \
     --logger.level=info > streamlit.log 2>&1 &

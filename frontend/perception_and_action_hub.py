@@ -3,7 +3,7 @@ import random
 import streamlit as st
 import pandas as pd
 import requests
-from api_client import (
+from perception_client import (
     start_agent, stop_agent, simulate_incident, fetch_incidents,
     get_agent_status, start_all_agents, stop_all_agents, 
     trigger_agents_manual, get_agent_decisions,
@@ -3145,7 +3145,7 @@ Provide JSON format response."""
                         
                         **In another terminal (local):**
                         ```bash
-                        streamlit run frontend/app.py --server.port 8501
+                        streamlit run frontend/perception_and_action_hub.py --server.port 8501
                         ```
                         
                         ### Configuration:

@@ -68,7 +68,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 ```bash
 cd ~/MonitoringAlert
 source venv/bin/activate
-python3 -m streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
+python3 -m streamlit run frontend/perception_and_action_hub.py --server.port 8501 --server.address 0.0.0.0
 ```
 
 **Expected Output:**

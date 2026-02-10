@@ -1,1 +1,254 @@
-[]
+[
+  {
+    "timestamp": "2026-02-10 03:03:23Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:25Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:27Z",
+    "app": "postgres",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:29Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:31Z",
+    "app": "mysql",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:32Z",
+    "app": "Streamlit_UI",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:03:34Z",
+    "app": "Notifications",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:50Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:51Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:52Z",
+    "app": "postgres",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:53Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:54Z",
+    "app": "mysql",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:54Z",
+    "app": "Streamlit_UI",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:22:55Z",
+    "app": "Notifications",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:18Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:19Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:21Z",
+    "app": "postgres",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:24Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:27Z",
+    "app": "mysql",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:31Z",
+    "app": "Streamlit_UI",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 03:26:33Z",
+    "app": "Notifications",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; outside change window"
+  },
+  {
+    "timestamp": "2026-02-10 05:01:40Z",
+    "app": "test-nginx",
+    "action": "restart",
+    "outcome": "failed",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:01:41Z",
+    "app": "redis",
+    "action": "restart",
+    "outcome": "failed",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:01:42Z",
+    "app": "mongodb",
+    "action": "restart",
+    "outcome": "failed",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:08:19Z",
+    "app": "test-nginx",
+    "action": "restart",
+    "outcome": "pending_approval",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:08:21Z",
+    "app": "redis",
+    "action": "restart",
+    "outcome": "pending_approval",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:08:26Z",
+    "app": "mongodb",
+    "action": "restart",
+    "outcome": "pending_approval",
+    "reason": "Health check failed"
+  },
+  {
+    "timestamp": "2026-02-10 05:12:24Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 05:12:29Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 05:12:34Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 05:37:53Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 05:37:58Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 05:38:03Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 06:09:17Z",
+    "app": "test-nginx",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 06:09:21Z",
+    "app": "redis",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  },
+  {
+    "timestamp": "2026-02-10 06:09:27Z",
+    "app": "mongodb",
+    "action": "no_action",
+    "outcome": "skipped",
+    "reason": "Health check failed; restart limit reached"
+  }
+]
