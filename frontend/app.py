@@ -1011,7 +1011,7 @@ System Context:
 - Deployments: {ui_context.get('deployments', 'N/A')}
 - Disk Issues: {ui_context.get('disk_issues', 'N/A')}
 
-Vulnerability KB (if available): {vuln_df.head(3).to_dict() if vuln_df is not None else 'Not loaded'}
+Vulnerability KB (if available): {vuln_df.head(3).to_dict() if vuln_df is not None and hasattr(vuln_df, 'head') else 'Not loaded'}
 """
     
     system_prompt = f"""
