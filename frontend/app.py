@@ -1049,14 +1049,20 @@ def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
     # -------- AGENT CONTROL --------
     if "start" in query and "agent" in query:
         try:
-            start_agent({"config": "manual"})
-            return "✅ Agent started successfully. Monitoring is now active."
+            result = trigger_agents_manual()
+            if result["success"]:
+                return "✅ Autonomous agents triggered successfully! Running analysis now...\n\nℹ️ For full control, visit the '🤖 Agentic Copilot' tab → 'Overview' subtab."
+            else:
+                return f"❌ Failed to trigger agents: {result['error']}\n\nℹ️ Make sure the agent server is running on port 8001:\n```bash\npython3 -m uvicorn backend.api.agent_server:app --host 0.0.0.0 --port 8001\n```"
         except Exception as e:
-            return f"❌ Failed to start agent: {str(e)}"
+            return f"❌ Failed to start agent: {str(e)}\n\nℹ️ Make sure the agent server is running on port 8001."
     elif "stop" in query and "agent" in query:
         try:
-            stop_agent()
-            return "🛑 Agent stopped. Monitoring paused."
+            result = stop_all_agents()
+            if result["success"]:
+                return "🛑 All autonomous agents stopped successfully.\n\nℹ️ For full control, visit the '🤖 Agentic Copilot' tab → 'Overview' subtab."
+            else:
+                return f"❌ Failed to stop agents: {result['error']}"
         except Exception as e:
             return f"❌ Failed to stop agent: {str(e)}"
     elif "status" in query and "agent" in query:
