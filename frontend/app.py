@@ -312,26 +312,33 @@ max_restarts_per_day={policy.get('max_restarts_per_day')}
 change_window={policy.get('change_window')}
 """
 
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(temperature=0.2)
-    )
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.2)
+        )
 
-    parsed = _llm_extract_json(response.text or "")
-    if not parsed:
+        parsed = _llm_extract_json(response.text or "")
+        if not parsed:
+            return None
+
+        action = parsed.get("action")
+        if action not in {"restart", "no_action"}:
+            return None
+
+        return {
+            "action": action,
+            "reason": parsed.get("reason", "LLM decision"),
+            "confidence": float(parsed.get("confidence", 0.6) or 0.6),
+        }
+    except Exception as e:
+        # Handle SSL errors, network issues, or API failures gracefully
+        # Log but don't crash - fall back to rule-based decision
+        import logging
+        logging.warning(f"LLM reasoning failed: {e}")
         return None
-
-    action = parsed.get("action")
-    if action not in {"restart", "no_action"}:
-        return None
-
-    return {
-        "action": action,
-        "reason": parsed.get("reason", "LLM decision"),
-        "confidence": float(parsed.get("confidence", 0.6) or 0.6),
-    }
 
 
 def _policy_path():
