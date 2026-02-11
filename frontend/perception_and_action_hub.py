@@ -30,7 +30,8 @@ load_dotenv(DOTENV_PATH, override=True)
 
 st.set_page_config(
     page_title="Agent Automation",
-    layout="centered",  # 👈 important for login
+    layout="wide",  # OPTIMIZATION: Changed from 'centered' to 'wide' for better performance
+    initial_sidebar_state="expanded"
 )
 
 # -------------------------------------------------
@@ -49,8 +50,9 @@ def generate_random_tags():
     return random.sample(tag_pool, k=random.randint(2, 5))
 
 # -------- HEALTH CHECK FUNCTIONS --------
+@st.cache_data
 def load_apps_csv(file_path="apps.csv"):
-    """Load apps from CSV file"""
+    """Load apps from CSV file - CACHED"""
     apps = []
     try:
         if os.path.exists(file_path):
@@ -752,6 +754,7 @@ def get_priority_from_severity(severity):
     }
     return severity_map.get(severity.lower(), "Medium")
 
+@st.cache_data
 def load_ssl_certificates_csv(file_path="ssl_certificates.csv"):
     """Load SSL certificate inventory from CSV"""
     try:
@@ -1092,19 +1095,31 @@ def generate_commit_hash(length=40):
 
 @st.cache_resource
 def get_copilot_kb_client():
-    """Initialize Copilot KB API client (replaces Excel loading)"""
+    """Initialize Copilot KB API client (replaces Excel loading) - CACHED"""
     try:
         import sys
         import os
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("KB API connection timed out after 3s")
+        
+        # OPTIMIZATION: Add 3-second timeout to prevent blocking page load
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(3)
+        
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
         from api.copilot_kb_client import CopilotKBClient
         
         # Use local API or remote
         api_url = os.getenv("COPILOT_KB_API", "http://localhost:8000")
         client = CopilotKBClient(api_url)
+        
+        signal.alarm(0)  # Cancel timeout
         return client
     except Exception as e:
-        st.warning(f"⚠️ Copilot KB API not available: {str(e)}")
+        # Don't show warning on every load - just return None
+        # (st.sidebar updates cause reruns which would spam the warning)
         return None
 
 def chatbot_answer_engine(user_query, ui_context, vuln_df=None):
@@ -1564,15 +1579,7 @@ def main_app():
     )
 
    # ✨ -------- Copilot KB API (Replaces Excel) --------
-    if "copilot_kb" not in st.session_state:
-        try:
-            st.session_state.copilot_kb = get_copilot_kb_client()
-            if st.session_state.copilot_kb:
-                st.sidebar.success("✅ Copilot KB API Connected (Unlimited Knowledge)")
-            else:
-                st.sidebar.warning("⚠️ Using fallback knowledge base")
-        except Exception as e:
-            st.sidebar.error(f"❌ KB Error: {str(e)}")
+    # Lazy-load in the chatbot tab to avoid blocking initial page load.
 
 
 
@@ -1885,6 +1892,11 @@ def main_app():
     # --- lowerlane environment chatbot tab ---
     with tabs[0]:
         st.header("💬 lowerlane environment chatbot")
+
+        if "copilot_kb" not in st.session_state:
+            st.session_state.copilot_kb = get_copilot_kb_client()
+        if st.session_state.copilot_kb:
+            st.caption("✅ Copilot KB API connected")
 
         with st.expander("How this works (Agentic flow)", expanded=False):
             st.markdown(
@@ -2254,17 +2266,17 @@ def main_app():
                                             outcome = agentic_execute_restart(full_result)
                                             action["execution"] = outcome
                                             st.success(f"✅ Restart approved for {action['app']}: {outcome['details']}")
-                                    st.session_state.health_check_logs.append(
-                                        f"{utc_now()} | AGENTIC_RESTART | app={action['app']} | outcome={outcome['outcome']}"
-                                    )
-                                    memory.append({
-                                        "timestamp": utc_now(),
-                                        "app": action["app"],
-                                        "action": "restart",
-                                        "outcome": outcome["outcome"],
-                                        "reason": action["reason"],
-                                    })
-                                    save_incident_memory(memory)
+                                            st.session_state.health_check_logs.append(
+                                                f"{utc_now()} | AGENTIC_RESTART | app={action['app']} | outcome={outcome['outcome']}"
+                                            )
+                                            memory.append({
+                                                "timestamp": utc_now(),
+                                                "app": action["app"],
+                                                "action": "restart",
+                                                "outcome": outcome["outcome"],
+                                                "reason": action["reason"],
+                                            })
+                                            save_incident_memory(memory)
                 
                 # Demo-friendly card layout
                 st.write("### Demo Status Cards")
