@@ -22,9 +22,12 @@ class LLMReasoner:
     def __init__(self, model: str = "gemini-2.0-flash"):
         self.model = model
         api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise RuntimeError("GOOGLE_API_KEY not set")
-        self.client = genai.Client(api_key=api_key)
+        if api_key:
+            self.client = genai.Client(api_key=api_key)
+            logger.info("[REASONER] Initialized with Gemini LLM support")
+        else:
+            self.client = None
+            logger.warning("[REASONER] GOOGLE_API_KEY not set - using fallback rule-based reasoning only")
 
     def reason_about_incident(
         self, incident: Incident, memory: Memory
@@ -36,7 +39,13 @@ class LLMReasoner:
         3. Review effective remediation patterns
         4. Recommend best actions
         5. Assess risk level and approval need
+        
+        Falls back to rule-based reasoning if LLM unavailable
         """
+        
+        # If no LLM client, use fallback immediately
+        if not self.client:
+            return self._fallback_reasoning(incident)
 
         # Get context from memory
         similar_incidents = memory.get_similar_incidents(incident.app_name, days=30)
