@@ -366,10 +366,14 @@ class PerceptionEngine:
 
         for app_config in self.apps_config:
             app_name = app_config.get("name")
+            docker_container = app_config.get("docker_container")
 
             # Health check
             if "health_url" in app_config:
                 signal = await self.health_checker.check(app_name, app_config["health_url"])
+                # Add docker_container to metadata if present
+                if docker_container:
+                    signal.metadata["docker_container"] = docker_container
                 signals.append(signal)
 
             # System metrics

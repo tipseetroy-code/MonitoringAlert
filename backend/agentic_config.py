@@ -4,29 +4,41 @@ Loaded from environment variables for production use.
 """
 
 import os
+import csv
+from pathlib import Path
+
+
+def _load_apps_from_csv():
+    """Load app configuration from apps.csv"""
+    csv_path = Path(__file__).parent.parent / "apps.csv"
+    apps = []
+    
+    try:
+        with open(csv_path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                app_name = row.get("AppName", "").strip()
+                url = row.get("URL", "").strip()
+                container = row.get("DockerContainer", "").strip()
+                
+                if app_name and url:
+                    apps.append({
+                        "name": app_name,
+                        "health_url": url,
+                        "docker_container": container if container else None,
+                        "log_file": None,  # Not used for Docker containers
+                        "systemd_service": None,  # Not used for Docker containers
+                    })
+    except Exception as e:
+        print(f"Error loading apps.csv: {e}")
+        # Fallback to empty list if CSV not found
+        apps = []
+    
+    return apps
 
 
 # 1. APPLICATION MONITORING
-APPS_CONFIG = [
-    {
-        "name": "api-server",
-        "health_url": "http://localhost:8000/health",
-        "log_file": "/var/log/api-server.log",
-        "systemd_service": "api-server.service",
-    },
-    {
-        "name": "database",
-        "health_url": "http://localhost:5432/health",
-        "log_file": "/var/log/postgresql/postgresql.log",
-        "systemd_service": "postgresql.service",
-    },
-    {
-        "name": "cache",
-        "health_url": "http://localhost:6379/health",
-        "log_file": "/var/log/redis.log",
-        "systemd_service": "redis-server.service",
-    },
-]
+APPS_CONFIG = _load_apps_from_csv()
 
 # 2. JIRA CONFIGURATION
 JIRA_CONFIG = {

@@ -400,7 +400,15 @@ class AgenticSRECopilot:
     def _enrich_context(self, app_name: str, signals: List[Signal]) -> Dict:
         """Enrich incident with historical context"""
         similar = self.memory.get_similar_incidents(app_name, days=30)
-        return {
+        
+        # Extract docker_container from signals if present
+        docker_container = None
+        for signal in signals:
+            if signal.metadata.get("docker_container"):
+                docker_container = signal.metadata["docker_container"]
+                break
+        
+        context = {
             "similar_recent_incidents": len(similar),
             "previous_root_causes": [
                 inc.get("root_cause_confirmed") for inc in similar if inc.get("root_cause_confirmed")
@@ -410,6 +418,12 @@ class AgenticSRECopilot:
                 "statuses": [s.status for s in signals],
             },
         }
+        
+        # Add docker_container if present
+        if docker_container:
+            context["docker_container"] = docker_container
+        
+        return context
 
     def reason(self, incident: Incident) -> ReasoningDecision:
         """

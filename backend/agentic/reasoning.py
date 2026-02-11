@@ -164,12 +164,15 @@ Focus on:
         requires_approval = False
         escalate = False
 
+        # Use restart_container for Docker-based apps (check if context has docker_container)
+        restart_action = "restart_container" if incident.context.get("docker_container") else "restart_service"
+
         if incident.severity.value == "CRITICAL":
-            actions = ["restart_service", "notify_oncall"]
+            actions = [restart_action, "notify_oncall"]
             requires_approval = True
             escalate = True
         elif incident.severity.value == "HIGH":
-            actions = ["check_logs", "restart_service"]
+            actions = ["check_logs", restart_action]
             requires_approval = True
         else:
             actions = ["check_logs", "monitor"]

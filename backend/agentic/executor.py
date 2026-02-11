@@ -219,6 +219,66 @@ class ApplicationExecutor:
     """Application-specific action execution"""
 
     @staticmethod
+    def restart_docker_container(container_name: str, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Restart a Docker container
+
+        Args:
+            container_name: Docker container name
+            timeout: max seconds to wait for restart
+
+        Returns:
+            {
+                "success": bool,
+                "output": str,
+                "error": str or None,
+            }
+        """
+        try:
+            logger.info(f"[EXECUTOR] Restarting Docker container: {container_name}")
+            
+            # Restart container
+            result = subprocess.run(
+                ["docker", "restart", container_name],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            if result.returncode != 0:
+                error = result.stderr.strip() or "Docker restart failed"
+                logger.error(f"[EXECUTOR] Failed to restart {container_name}: {error}")
+                return {
+                    "success": False,
+                    "output": result.stdout,
+                    "error": error,
+                }
+
+            logger.info(f"[EXECUTOR] Successfully restarted Docker container: {container_name}")
+            return {
+                "success": True,
+                "output": f"Container {container_name} restarted successfully\n{result.stdout}",
+                "error": None,
+            }
+
+        except subprocess.TimeoutExpired:
+            error = f"Docker restart timed out after {timeout}s"
+            logger.error(f"[EXECUTOR] {error}")
+            return {
+                "success": False,
+                "output": "",
+                "error": error,
+            }
+        except Exception as e:
+            error = str(e)
+            logger.error(f"[EXECUTOR] Error restarting {container_name}: {e}")
+            return {
+                "success": False,
+                "output": "",
+                "error": error,
+            }
+
+    @staticmethod
     def drain_connections(
         app_name: str, drain_timeout: int = 30
     ) -> Dict[str, Any]:
@@ -309,6 +369,10 @@ class ActionExecutor:
             if action_type == "restart_service":
                 service_name = params.get("service_name", f"{target}.service")
                 return self.systemd.restart_service(service_name)
+
+            elif action_type == "restart_container":
+                container_name = params.get("container_name", target)
+                return self.app.restart_docker_container(container_name)
 
             elif action_type == "stop_service":
                 service_name = params.get("service_name", f"{target}.service")
