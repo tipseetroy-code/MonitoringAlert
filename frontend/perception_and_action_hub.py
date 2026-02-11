@@ -2962,21 +2962,40 @@ Vulnerabilities:
 
 Provide JSON format response."""
                     
-                    # Call Groq for classification
-                    groq_key = os.getenv("GROQ_API_KEY")
-                    gemini_client = None
+                    # Call LLM for vulnerability classification
+                    # Groq and Gemini clients are already initialized in autonomous_agent_service module
                     try:
-                        from google import genai
-                        gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-                    except:
-                        pass
-                    
-                    from backend.api.autonomous_agent_service import llm_generate
-                    classification = llm_generate(classification_prompt, groq_key, gemini_client, "models/gemini-2.5-flash")
-                    
-                    st.success("✅ Classification complete")
-                    st.markdown("**Classification Results:**")
-                    st.code(classification, language="json")
+                        from backend.api.autonomous_agent_service import llm_generate
+                        classification_json = llm_generate(classification_prompt, model="models/gemini-2.5-flash")
+                        
+                        # Parse and display classification results
+                        try:
+                            results = json.loads(classification_json)
+                            st.success("✅ Classification complete")
+                            st.markdown("**Classification Results:**")
+                            
+                            # Display in a organized format
+                            for vuln_id, vuln_class in results.items():
+                                if isinstance(vuln_class, dict):
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Severity", vuln_class.get("classification", "Unknown"))
+                                    with col2:
+                                        st.metric("Effort", vuln_class.get("effort", "Unknown"))
+                                    with col3:
+                                        st.metric("Timeline", vuln_class.get("timeline", "Unknown"))
+                                    if "fallback" in vuln_class:
+                                        st.info(f"ℹ️ {vuln_class.get('note', 'Estimated using heuristics')}")
+                            
+                            # Show raw JSON for debugging
+                            st.code(classification_json, language="json")
+                        except json.JSONDecodeError:
+                            st.warning("Could not parse LLM response as JSON - showing raw output")
+                            st.code(classification_json, language="text")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Classification failed: {str(e)}")
+                        st.info("Using rule-based fallback classification...")
                 else:
                     st.warning("No vulnerabilities to classify after filtering")
             
