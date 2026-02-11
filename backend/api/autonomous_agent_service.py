@@ -45,8 +45,9 @@ else:
 # Initialize Gemini client
 if GOOGLE_API_KEY:
     try:
-        from google import genai
-        gemini_client = genai.Client(api_key=GOOGLE_API_KEY)
+        import google.generativeai as genai
+        genai.configure(api_key=GOOGLE_API_KEY)
+        gemini_client = genai  # Store the configured module for later use
         logger.info("✓ Gemini API client initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize Gemini: {e}")
@@ -72,11 +73,11 @@ def call_groq_llm(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
         logger.error(f"Groq API error: {str(e)}")
         return "{}"
 
-def llm_generate(prompt: str, groq_key: str = None, gemini_client_param = None, model: str = "models/gemini-2.5-flash") -> str:
+def llm_generate(prompt: str, groq_key: str = None, gemini_client_param = None, model: str = "gemini-2.0-flash") -> str:
     """Generate LLM response with dual API support (Groq first, then Gemini fallback)"""
     # Use provided clients or fall back to module-level clients
     groq = groq_client
-    gemini = gemini_client_param or gemini_client
+    genai_module = gemini_client_param or gemini_client
     
     # Try Groq first if available
     if groq:
@@ -93,12 +94,10 @@ def llm_generate(prompt: str, groq_key: str = None, gemini_client_param = None, 
             logger.warning(f"Groq API error: {str(e)}")
     
     # Try Gemini as fallback
-    if gemini:
+    if genai_module:
         try:
-            response = gemini.models.generate_content(
-                model=model,
-                contents=prompt
-            )
+            genai_model = genai_module.GenerativeModel(model)
+            response = genai_model.generate_content(prompt)
             logger.info("✓ Used Gemini for LLM inference")
             return response.text if response.text else "{}"
         except Exception as e:

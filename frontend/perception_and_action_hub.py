@@ -2966,7 +2966,7 @@ Provide JSON format response."""
                     # Groq and Gemini clients are already initialized in autonomous_agent_service module
                     try:
                         from backend.api.autonomous_agent_service import llm_generate
-                        classification_json = llm_generate(classification_prompt, model="models/gemini-2.5-flash")
+                        classification_json = llm_generate(classification_prompt, model="gemini-2.0-flash")
                         
                         # Parse and display classification results
                         try:
