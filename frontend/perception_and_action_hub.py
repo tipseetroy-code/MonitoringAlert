@@ -387,8 +387,7 @@ def llm_reason_decide(result, memory, policy):
         return _llm_cache[app_name]
 
     try:
-        from google import genai
-        from google.genai import types
+        import google.generativeai as genai
     except Exception:
         return None
 
@@ -418,12 +417,12 @@ change_window={policy.get('change_window')}
 """
 
     try:
-        client = genai.Client(api_key=api_key)
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
         # Add timeout to prevent hanging - 8 second max per API call
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.2)
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(temperature=0.2)
         )
 
         parsed = _llm_extract_json(response.text or "")
@@ -1004,8 +1003,7 @@ def web_search(query):
 
 def ai_chatbot_response(user_query, ui_context, vuln_df=None):
     import os
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     
     api_key = os.getenv("GOOGLE_API_KEY", "")
     
@@ -1063,17 +1061,14 @@ Respond in a friendly and helpful way. Keep explanations clear and simple.
 """
     
     try:
-        client = genai.Client(api_key=api_key)
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         full_query = f"User query: {user_query}\n\nBased on the available information and web search results, provide a helpful response."
         
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=full_query,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.7
-            )
+        response = model.generate_content(
+            full_query,
+            generation_config=genai.types.GenerationConfig(temperature=0.7)
         )
         
         llm_response = response.text if response.text else ""
