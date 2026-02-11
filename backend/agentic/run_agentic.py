@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.agentic import initialize_orchestrator, get_orchestrator
-from backend.config.agentic_config import get_orchestrator_config
+from backend.agentic_config import get_orchestrator_config
 
 # Configure logging
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
