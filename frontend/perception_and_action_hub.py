@@ -218,7 +218,7 @@ def _restart_docker(container_name: str) -> Dict[str, str]:
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=10",
                 ssh_host,
-                f"docker restart {container_name}"
+                f"docker restart {container_name} 2>&1"
             ]
             result = subprocess.run(
                 ssh_command,
@@ -226,6 +226,17 @@ def _restart_docker(container_name: str) -> Dict[str, str]:
                 text=True,
                 timeout=30,
             )
+            
+            # Log the output for debugging
+            print(f"SSH Docker restart: {container_name}")
+            print(f"Return code: {result.returncode}")
+            print(f"Stdout: {result.stdout}")
+            print(f"Stderr: {result.stderr}")
+            
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                return {"success": "false", "error": f"SSH error: {error_msg}"}
+            return {"success": "true", "output": f"Container {container_name} restarted via SSH"}
         else:
             # Local restart (fallback)
             result = subprocess.run(
@@ -234,10 +245,10 @@ def _restart_docker(container_name: str) -> Dict[str, str]:
                 text=True,
                 timeout=30,
             )
-        
-        if result.returncode != 0:
-            return {"success": "false", "error": result.stderr.strip() or "Unknown error"}
-        return {"success": "true", "output": result.stdout.strip()}
+            
+            if result.returncode != 0:
+                return {"success": "false", "error": result.stderr.strip() or "Unknown error"}
+            return {"success": "true", "output": result.stdout.strip()}
     except Exception as exc:
         return {"success": "false", "error": str(exc)}
 
@@ -2208,15 +2219,21 @@ def main_app():
                 if st.session_state.get("agentic_actions"):
                     with st.expander("🤖 Agentic Decisions", expanded=False):
                         memory = load_incident_memory()
-                        for action in st.session_state.agentic_actions:
-                            st.write(
-                                f"**{action['app']}** → `{action['action']}` | safe={action['safe_to_act']} | reason: {action['reason']}"
-                            )
-                            if action["action"] == "restart" and action.get("requires_approval"):
-                                if st.button(f"Approve restart: {action['app']}", key=f"approve_{action['app']}"):
-                                    outcome = agentic_execute_restart({"AppName": action["app"]})
-                                    action["execution"] = outcome
-                                    st.success(f"Restart approved for {action['app']}: {outcome['details']}")
+                        for i, action in enumerate(st.session_state.agentic_actions):
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                st.write(
+                                    f"**{action['app']}** → `{action['action']}` | safe={action['safe_to_act']} | reason: {action['reason']}"
+                                )
+                            with col2:
+                                if action["action"] == "restart" and action.get("requires_approval"):
+                                    if st.button(f"✅ Approve", key=f"approve_{action['app']}_{i}"):
+                                        # Find the full result object for this app
+                                        full_result = next((r for r in results if r["AppName"] == action["app"]), None)
+                                        if full_result:
+                                            outcome = agentic_execute_restart(full_result)
+                                            action["execution"] = outcome
+                                            st.success(f"✅ Restart approved for {action['app']}: {outcome['details']}")
                                     st.session_state.health_check_logs.append(
                                         f"{utc_now()} | AGENTIC_RESTART | app={action['app']} | outcome={outcome['outcome']}"
                                     )
