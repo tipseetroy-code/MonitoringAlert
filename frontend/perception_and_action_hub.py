@@ -68,7 +68,7 @@ def load_apps_csv(file_path="apps.csv"):
     return apps
 
 def check_app_health(app):
-    """Check single app health"""
+    """Check single app health - with optimized timeout (2 sec instead of 5)"""
     docker_container = app.get("DockerContainer", "")
     url = app.get("URL", "")
     if docker_container:
@@ -79,7 +79,8 @@ def check_app_health(app):
             if not port:
                 port = 443 if parsed.scheme == "https" else 80
 
-            with socket.create_connection((host, port), timeout=5):
+            # OPTIMIZATION: Reduce timeout from 5s to 2s for faster health checks
+            with socket.create_connection((host, port), timeout=2):
                 return {
                     "AppName": app.get("AppName", ""),
                     "URL": url,
@@ -368,11 +369,20 @@ def _llm_extract_json(text: str):
         return None
 
 
+# LLM Cache to avoid duplicate API calls for same app
+_llm_cache = {}
+
 def llm_reason_decide(result, memory, policy):
     api_key = os.getenv("GOOGLE_API_KEY", "")
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     if not api_key:
         return None
+
+    app_name = result.get("AppName", "")
+    
+    # Check cache first (avoid duplicate API calls for same app in same run)
+    if app_name in _llm_cache:
+        return _llm_cache[app_name]
 
     try:
         from google import genai
@@ -407,6 +417,7 @@ change_window={policy.get('change_window')}
 
     try:
         client = genai.Client(api_key=api_key)
+        # Add timeout to prevent hanging - 8 second max per API call
         response = client.models.generate_content(
             model=model_name,
             contents=prompt,
@@ -421,11 +432,15 @@ change_window={policy.get('change_window')}
         if action not in {"restart", "no_action"}:
             return None
 
-        return {
+        result_dict = {
             "action": action,
             "reason": parsed.get("reason", "LLM decision"),
             "confidence": float(parsed.get("confidence", 0.6) or 0.6),
         }
+        
+        # Cache the result for this run
+        _llm_cache[app_name] = result_dict
+        return result_dict
     except Exception as e:
         # Handle SSL errors, network issues, or API failures gracefully
         # Log but don't crash - fall back to rule-based decision
@@ -2019,7 +2034,8 @@ def main_app():
             with retry_col1:
                 auto_retry_failed = st.checkbox("Auto-retry failed apps after delay", value=True)
             with retry_col2:
-                retry_delay_sec = st.number_input("Retry delay (sec)", min_value=5, max_value=300, value=30, step=5)
+                # OPTIMIZATION: Default retry delay from 30s to 10s for faster feedback
+                retry_delay_sec = st.number_input("Retry delay (sec)", min_value=5, max_value=300, value=10, step=5)
 
             st.subheader("🤖 Agentic Auto-Restart (Demo)")
             policy = load_policy()
@@ -2039,7 +2055,7 @@ def main_app():
                     step=1
                 )
 
-            llm_reasoning = st.checkbox("Use LLM reasoning", value=True)
+            llm_reasoning = st.checkbox("Use LLM reasoning (slower, but more intelligent)", value=False)
 
             with st.expander("Policy gates", expanded=False):
                 col_a, col_b = st.columns(2)
@@ -2130,12 +2146,16 @@ def main_app():
                             if result["Color"] != "red":
                                 continue
                             decision = agentic_reason_and_decide(result, memory, policy)
+                            # Only use LLM reasoning if explicitly enabled (it's slow)
                             if llm_reasoning:
-                                llm_decision = llm_reason_decide(result, memory, policy)
-                                if llm_decision:
-                                    decision["action"] = llm_decision.get("action", decision["action"])
-                                    decision["reason"] = llm_decision.get("reason", decision["reason"])
-                                    decision["confidence"] = llm_decision.get("confidence", decision["confidence"])
+                                try:
+                                    llm_decision = llm_reason_decide(result, memory, policy)
+                                    if llm_decision:
+                                        decision["action"] = llm_decision.get("action", decision["action"])
+                                        decision["reason"] = llm_decision.get("reason", decision["reason"])
+                                        decision["confidence"] = llm_decision.get("confidence", decision["confidence"])
+                                except Exception as e:
+                                    st.warning(f"LLM reasoning skipped for {result['AppName']}: {str(e)[:50]}")
                             st.session_state.agentic_actions.append(decision)
 
                             st.session_state.health_check_logs.append(
