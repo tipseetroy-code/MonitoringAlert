@@ -1,6 +1,6 @@
 AppName,URL,DockerContainer,Expected
-test-nginx,http://18.237.102.97:8090,test-nginx,
-redis,http://18.237.102.97:6379,redis,
-postgres,http://18.237.102.97:5432,postgres,
-mongodb,http://18.237.102.97:27017,mongodb,
-Agent_Server,http://18.237.102.97:8001/api/agents/status,,
+test-nginx,http://54.187.231.57:8090,test-nginx,
+redis,http://54.187.231.57:6379,redis,
+postgres,http://54.187.231.57:5432,postgres,
+mongodb,http://54.187.231.57:27017,mongodb,
+Agent_Server,http://54.187.231.57:8001/api/agents/status,,
