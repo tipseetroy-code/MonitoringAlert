@@ -25,7 +25,7 @@ logging.basicConfig(
     format=LOG_FORMAT,
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("/var/log/sre-agent/agentic.log"),
+        logging.FileHandler("backend/agentic/agentic_orchestrator.log"),
     ],
 )
 
